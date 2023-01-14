@@ -120,11 +120,14 @@ fn index() -> &'static str {
 #[post("/profile", format="json", data = "<request>")]
 async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> Json<Profile>{
 
-	match sqlx::query("SELECT * from Users WHERE name = ?").bind(request.name).fetch_one(&mut *db).await{
+	match sqlx::query("SELECT * from Users WHERE name = ?").bind(request.user).fetch_one(&mut *db).await{
 		Ok(entry) => {
 			if entry.get("auth") != request.auth{
 				let p = Prefs {age:0,gender:"none",minrating:0.0};
 				return Json(Profile{user:"none", auth:"none", name:"none", age:0, phone:"none", gender:"none",contacts:vec!(),prefs:p});
+			}
+			match request.operation{
+				""
 			}
 		}
 		Err(e) => {

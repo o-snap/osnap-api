@@ -170,3 +170,45 @@ or
 }
 ```
 where the error may be "not at destination", or "bad phrase". 5 unsuccessful disarm attempts will result in an alert condition. 
+
+## Authentication
+In future releases, we hope to integrate with SSO via microsoft accounts but for now the API's server stores hashed user credentials. To add a user, POST to `/signup`:
+```JSON
+{
+	"email": "jappleseed@wpi.edu",
+	"name": "Johnny Appleseed",
+	"phone": "XXX-XXX-XXXX",
+	"password": "ARGON2 HASHED PASSWORD"
+	
+}
+```
+**NEVER** send the user's password in plaintext to the API!!!
+The server needs to verify the user's account by sending an email to the address provided. As this takes a long time due to human interaction, the API will return a new URL whigh can be GET queried. The return will look like:
+```JSON
+{
+	"statuslink": "/signup/UpklP4Zacq7Qv"
+}
+```
+When this link is queried, it will return either 
+```JSON
+{
+	"status": "ok"
+}
+```
+or
+```JSON
+{
+	"status": "pending"
+}
+```
+When this link returns OK, direct users to the signin page or, better yet, cache their credentials and automatically POST them to `/login` to continue.
+
+To log in an existing user, POST to `/login`:
+```JSON
+{
+	"email": "jappleseed@wpi.edu",
+	"password": "ARGON2 HASHED PASSWORD"
+	
+}
+```
+to which the server will respond with an auth token to be used in future transactions (should be stored as a secure cookie client-side) or the word "bad"
