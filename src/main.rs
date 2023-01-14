@@ -6,16 +6,31 @@ use rand_core::{RngCore, OsRng};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result};
 #[derive(Deserialize)]
-struct Prof_request<'r> {
+struct ProfRequest<'r> {
 	user: &'r str,
 	auth: &'r str,
 	operation: &'r str,
+	#[serde(default = "none")] 
+	name: &'r str,
+	#[serde(default = "defaultint")] 
+	age: u16,
+	#[serde(default = "none")] 
+	gender: &'r str,
+	#[serde(default = "emptyvec")] 
+	contacts: Vec<Contact<'r>>,
+	#[serde(default = "defaultprefs")] 
+	prefs: Prefs<'r>
+}
+
+#[derive(Serialize)]
+struct Profile<'r> {
+	user: &'r str,
+	auth: &'r str,
 	name: &'r str,
 	age: u16,
 	gender: &'r str,
 	contacts: Vec<Contact<'r>>,
-	// TODO: Add prefs and default vals
-	
+	prefs: Prefs<'r>
 }
 
 #[derive(Deserialize, Serialize)]
@@ -25,7 +40,12 @@ struct Contact<'r> {
 	addr: &'r str
 }
 
-
+#[derive(Deserialize, Serialize)]
+struct Prefs<'r> {
+	age: u16,
+	gender: &'r str,
+	minrating: f32
+}
 
 #[get("/")]
 fn index() -> &'static str {
@@ -37,4 +57,19 @@ fn index() -> &'static str {
 #[launch]
 fn rocket() -> _ {
     rocket::build().mount("/", routes![index])
+}
+
+fn none() -> &'static str {
+	"none"
+}
+fn defaultint() -> u16 {
+	65535
+}
+
+fn defaultprefs<'r>() -> Prefs<'r>{
+	Prefs{age: 65535, gender: "none", minrating: -1.0}
+}
+
+fn emptyvec<'r>() -> Vec<Contact<'r>>{
+	vec!()
 }
