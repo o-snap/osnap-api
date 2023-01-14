@@ -103,7 +103,80 @@ The server will then respond with:
 {
 	"Buddy": "Johnny Appleseed",
 	"approxdist": "32 feet",
-	"picture": "/pictures/468136b6f3"
+	"picture": "/pictures/468136b6f3",
+	"avgrating": 4.1,
+	"ratings": 23
 }
-
+```
 ## Trip Actions
+Both users are presented with the option to `accept` or `decline` the trip which will be done via the `operation` field. Users can also request the failsafe service which automatically generates an emergency alert if the destination is not reached within a set time. The failsafe can only be disarmed if the user's geolocation generally matches their destination. 
+
+Example:
+```JSON
+{
+	"user": "jappleseed",
+	"auth": "3ae33e1cb43b75efdaf5eca7",
+	"operation": "accept",
+	"failsafe": true
+}
+```
+or
+```JSON
+{
+	"user": "jappleseed",
+	"auth": "3ae33e1cb43b75efdaf5eca7",
+	"operation": "decline"
+}
+```
+The server will respond with JSON. If the user did not request failsafe, it will simply be either
+```JSON
+{
+	"status": "ok"
+}
+```
+or
+```JSON
+{
+	"status": "error: {}"
+}
+```
+
+If the user did request failsafe the server will respond with two randomly generated words. One is the disarm word, one is a durress word. If the user is compelled to disarm the failsafe against their will, they enter the durress word. The user interface will behave as if the failsafe is disarmed, but the server will generate an alert.
+```JSON
+{
+	"status": "ok",
+	"disarm-word": "piano",
+	"durress-word": "shell"
+}
+```
+
+## Failsafe
+When the user gets to their destination and if failsafe is enabled, they must notify the server. The client will POST to `/trip/{tripID}` the following:
+```JSON
+{
+	"user": "jappleseed",
+	"auth": "3ae33e1cb43b75efdaf5eca7",
+	"operation": "disarm",
+	"word": "piano"
+	"curlocation":
+		[
+			{
+				"latitude": "0.000000",
+				"longitude": "0.000000",
+			}
+		]
+}
+```
+To which the server will respond either 
+```JSON
+{
+	"status": "ok"
+}
+```
+or
+```JSON
+{
+	"status": "error: {}"
+}
+```
+where the error may be "not at destination", or "bad phrase". 5 unsuccessful disarm attempts will result in an alert condition. 
