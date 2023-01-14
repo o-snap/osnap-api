@@ -101,7 +101,7 @@ No further data is provided over the GET interface for privacy. Once the status 
 The server will then respond with:
 ```JSON
 {
-	"Buddy": "Johnny Appleseed",
+	"name": "Johnny Appleseed",
 	"approxdist": "32 feet",
 	"picture": "/pictures/468136b6f3",
 	"avgrating": 4.1,
@@ -141,15 +141,6 @@ or
 }
 ```
 
-If the user did request failsafe the server will respond with two randomly generated words. One is the disarm word, one is a durress word. If the user is compelled to disarm the failsafe against their will, they enter the durress word. The user interface will behave as if the failsafe is disarmed, but the server will generate an alert.
-```JSON
-{
-	"status": "ok",
-	"disarm-word": "piano",
-	"durress-word": "shell"
-}
-```
-
 ## Failsafe
 When the user gets to their destination and if failsafe is enabled, they must notify the server. The client will POST to `/trip/{tripID}` the following:
 ```JSON
@@ -157,7 +148,6 @@ When the user gets to their destination and if failsafe is enabled, they must no
 	"user": "jappleseed",
 	"auth": "3ae33e1cb43b75efdaf5eca7",
 	"operation": "disarm",
-	"word": "piano"
 	"curlocation":
 		[
 			{

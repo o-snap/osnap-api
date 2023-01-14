@@ -57,12 +57,31 @@ pub struct Location<'r> {
 	latitude: &'r str,
 	longitude: &'r str
 }
-
 #[derive(Serialize)]
-pub struct TripResp<'r> {
-	user: &'r str,
-	tripID: &'r str
+pub struct PubProfile<'r> {
+	name: &'r str,
+	approxdist: &'r str,
+	avgrating: f32,
+	numratings: u32,
+	picture: &'r str
 }
+#[derive(Deserialize)]
+pub struct WalkResponce<'r>{
+	user: &'r str,
+	auth: &'r str,
+	operation: &'r str,
+	#[serde(default = "falsebool")] 
+	failsafe: bool
+}
+
+#[derive(Deserialize)]
+pub struct DisarmRequest<'r>{
+	user: &'r str,
+	auth: &'r str,
+	operation: &'r str,
+	curlocation: Location<'r>
+}
+
 fn none() -> &'static str {
 	"none"
 }
@@ -76,4 +95,8 @@ fn defaultprefs<'r>() -> Prefs<'r>{
 
 fn emptyvec<'r>() -> Vec<Contact<'r>>{
 	vec!()
+}
+
+fn falsebool()->bool{
+	false
 }
