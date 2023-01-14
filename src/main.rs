@@ -18,9 +18,7 @@ pub struct ProfRequest<'r> {
 	#[serde(default = "none")]
 	gender: &'r str,
 	#[serde(default = "emptyvec")]
-	contacts: Vec<Contact<'r>>,
-	#[serde(default = "defaultprefs")]
-	prefs: Prefs<'r>
+	contacts: Vec<&'r str>
 }
 
 #[derive(Serialize)]
@@ -31,22 +29,8 @@ pub struct Profile<'r> {
 	age: u16,
 	gender: &'r str,
 	phone: &'r str,
-	contacts: Vec<Contact<'r>>,
-	prefs: Prefs<'r>
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct Contact<'r> { // emergency contact
-	name: &'r str,
-	method: &'r str,
-	addr: &'r str
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct Prefs<'r> {
-	age: u16,
-	gender: &'r str,
-	minrating: f32
+	contacts: Vec<&'r str>,
+//	ratings: Vec<u8>
 }
 
 #[derive(Deserialize)]
@@ -99,22 +83,18 @@ fn defaultint() -> u16 {
 	65535
 }
 
-fn defaultprefs<'r>() -> Prefs<'r>{
-	Prefs{age: 65535, gender: "none", minrating: -1.0}
-}
-
-fn emptyvec<'r>() -> Vec<Contact<'r>>{
-	vec!()
-}
-
 fn falsebool()->bool{
 	false
+}
+
+fn emptyvec<'r>() -> Vec<&'r str>{
+        vec!()
 }
 
 
 #[get("/")]
 fn index() -> &'static str {
-    "O-Snap API server v0.1.0-goathack"
+    "oSNAP API server v0.1.0-goathack"
 }
 
 #[post("/profile", format="json", data = "<request>")]
@@ -123,16 +103,13 @@ async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> J
 	match sqlx::query("SELECT * from Users WHERE name = ?").bind(request.user).fetch_one(&mut *db).await{
 		Ok(entry) => {
 			if entry.get("auth") != request.auth{
-				let p = Prefs {age:0,gender:"none",minrating:0.0};
-				return Json(Profile{user:"none", auth:"none", name:"none", age:0, phone:"none", gender:"none",contacts:vec!(),prefs:p});
-			}
-			match request.operation{
-				""
+				return badprof();
+				}
+			if request.operation == "update"
 			}
 		}
 		Err(e) => {
-			let p = Prefs {age:0,gender:"none",minrating:0.0};
-			return Json(Profile{user:"none", auth:"none", name:"none", age:0, phone:"none", gender:"none",contacts:vec!(),prefs:p})
+			return badprof;
 		}
 	}
 }
@@ -146,7 +123,8 @@ fn rocket() -> _ {
     rocket::build().mount("/", routes![index]).attach(Users::init())
 }
 
-fn checkauth<'r>(key: &'r str) -> Result<&'r str, &'r str>{
-	
-	Err("unauthorized")
+fn badprof() -> Json<Profile>{
+	Json(Profile{user:"none", auth:"none", name:"none", age:0, phone:"none", gender:"none",contacts:vec!()})
 }
+
+fn updateprof()
