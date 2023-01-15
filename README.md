@@ -22,24 +22,10 @@ The API server would then respond with a responce of the following format:
 	"name": "Jane Appleseed",
 	"age": 19,
 	"gender": "female",
-	"picture": "/pictures/eca7fd8979e2408d"
-	"Contacts": [
-		{
-			"name": "roomate",
-			"method": "phone",
-			"number": "XXX-XXX-XXXX"
-		}
-	],
-	"ratingavg": 4.3,
-	"ratingcount": 15
-	"prefs": 
-	[
-		{
-			"age": "19-21"
-			"gender": null
-			"minrating": 3.5
-		}
-	]
+	"picture": "/pictures/eca7fd8979e2408d",
+	"Contacts": "XXX-XXX-XXXX,YYY-YYY-YYYY,ZZZ-ZZZ-ZZZZ",
+	"ratings": "5,4,5,2,5,4,3,5"
+
 }
 ```
 Note that the `gender` field can contain user-input text. The API will try to sanitize all user input but plan accordingly in handling of the field.
@@ -183,25 +169,8 @@ In future releases, we hope to integrate with SSO via microsoft accounts but for
 }
 ```
 **NEVER** send the user's password in plaintext to the API!!!
-The server needs to verify the user's account by sending an email to the address provided. As this takes a long time due to human interaction, the API will return a new URL whigh can be GET queried. The return will look like:
-```JSON
-{
-	"statuslink": "/signup/UpklP4Zacq7Qv"
-}
-```
-When this link is queried, it will return either 
-```JSON
-{
-	"status": "ok"
-}
-```
-or
-```JSON
-{
-	"status": "pending"
-}
-```
-When this link returns OK, direct users to the signin page or, better yet, cache their credentials and automatically POST them to `/login` to continue.
+The server needs to verify the user's status as a member of the WPI community. The easiest (and cheapest) way to impliment this is by checking that, during account creation, the user's IP is within WPI's public IPv4 block. Sending an email would be a more reliable method, but could not be implimented in time. The server will return a JSON with a single field, `status`, which will be set to either `unauthorized` or `ok`.
+If the server returns OK, direct users to the signin page or, better yet, cache their credentials and automatically POST them to `/login` to continue.
 
 To log in an existing user, POST to `/login`:
 ```JSON

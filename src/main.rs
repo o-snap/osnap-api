@@ -1,8 +1,10 @@
 #[macro_use] extern crate rocket;
+use std::net::IpAddr;
+
 use rocket_db_pools::{sqlx::{self,Row}, Database, Connection};
 use serde::{Deserialize, Serialize};
-use rocket::serde::{json::Json};
-
+use rocket::serde::json::{Json, Value, json};
+use rand_core::{RngCore, OsRng};
 
 #[derive(Deserialize, Clone)]
 pub struct ProfRequest<'r> {
@@ -69,10 +71,15 @@ pub struct DisarmRequest<'r>{
 	curlocation: Location<'r>
 }
 
-pub struct Status<'r>{
-	status: &'r str
+#[derive(Deserialize)]
+struct Signup<'r>{
+	user: &'r str,
+	name: &'r str,
+	phone: &'r str,
+	password: &'r str,
 }
 
+//goofy ahh functions due to serde quirk
 fn none() -> &'static str {
 	"none"
 }
@@ -113,7 +120,7 @@ async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> J
 					let mut tmp = String::new();
 					for i in request.contacts.as_slice(){
 						tmp.push_str(i);
-						tmp.push(':');
+						tmp.push(',');
 					}
 					sqlx::query("UPDATE Users SET contacts = ? WHERE user = ?").bind(tmp).bind(request.user).execute(&mut *db).await.unwrap();
 				}
@@ -126,7 +133,7 @@ async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> J
 			let vage = entry.get::<u16, &str>("age");
 			let vphone = entry.get::<&str, &str>("name").clone().to_string();
 			let vgender = entry.get::<&str, &str>("gender").clone().to_string();
-			let vcontacts = entry.get::<&str, &str>("contacts").split(":").collect::<Vec<&str>>();
+			let vcontacts = entry.get::<&str, &str>("contacts").split(",").collect::<Vec<&str>>();
 			let mut wcontacts: Vec<String> = vec!();
 			for i in vcontacts{
 				wcontacts.push(i.to_string());
@@ -149,15 +156,37 @@ async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> J
 	}
 }
 
+fn badprof() -> Json<Profile>{
+	Json(Profile{user:"none".to_string(), name:"none".to_string(), age:0, phone:"none".to_string(), gender:"none".to_string(),contacts:vec!(),ratings:"".to_string()})
+}
+
+#[post("/signup", format="json", data = "<request>")]
+async fn signup_handler(mut db: Connection<Users>, request: Json<Signup<'_>>, addr: IpAddr) -> Value{
+	let mut ip = addr.to_string();
+	ip = ip.get(0..7).unwrap().to_string();
+	if ip != "130.215" && ip != "207.174"{
+		// assume they're at WPI if the're within these address ranges (I know it's a really stupid way to do this but i'm on a short timetable)
+		return json!({
+			"status": "unauthorized"
+		});
+	}
+	let auth = OsRng.next_u32().to_string();
+	sqlx::query("INSERT INTO Users (user,auth,name,phone,password) VALUES(?, ?, ?, ?, ?)")
+	.bind(request.user)
+	.bind(auth)
+	.bind(request.name)
+	.bind(request.phone)
+	.bind(request.password)
+	.execute(&mut *db).await.unwrap();
+	json!({"status": "ok"})
+
+}
 #[derive(Database)]
 #[database("Users")]
 struct Users(sqlx::SqlitePool);
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![index, profile]).attach(Users::init())
+    rocket::build().mount("/", routes![index, profile, signup_handler]).attach(Users::init())
 }
 
-fn badprof() -> Json<Profile>{
-	Json(Profile{user:"none".to_string(), name:"none".to_string(), age:0, phone:"none".to_string(), gender:"none".to_string(),contacts:vec!(),ratings:"".to_string()})
-}
