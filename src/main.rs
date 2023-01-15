@@ -1,11 +1,10 @@
 #[macro_use] extern crate rocket;
 use rocket_db_pools::{sqlx::{self,Row}, Database, Connection};
-use rand_core::{RngCore, OsRng};
 use serde::{Deserialize, Serialize};
 use rocket::serde::{json::Json};
 
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct ProfRequest<'r> {
 	user: &'r str,
 	auth: &'r str,
@@ -23,7 +22,6 @@ pub struct ProfRequest<'r> {
 #[derive(Serialize, Clone)]
 pub struct Profile {
 	user: String,
-	auth: String,
 	name: String,
 	age: u16,
 	gender: String,
@@ -105,15 +103,30 @@ async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> J
 				return badprof();
 				}
 			if request.operation == "update"{
-			updateprof();
+				if request.age != 0{
+					sqlx::query("UPDATE Users SET age = ? WHERE user = ?").bind(request.age).bind(request.user).execute(&mut *db).await.unwrap();
+				}
+				if request.gender != "none"{
+					sqlx::query("UPDATE Users SET gender = ? WHERE user = ?").bind(request.gender).bind(request.user).execute(&mut *db).await.unwrap();
+				}
+				if request.contacts.len() > 0{
+					let mut tmp = String::new();
+					for i in request.contacts.as_slice(){
+						tmp.push_str(i);
+						tmp.push(':');
+					}
+					sqlx::query("UPDATE Users SET contacts = ? WHERE user = ?").bind(tmp).bind(request.user).execute(&mut *db).await.unwrap();
+				}
+				if request.name != "none"{
+					sqlx::query("UPDATE Users SET name = ? WHERE user = ?").bind(request.name).bind(request.user).execute(&mut *db).await.unwrap();
+				}
 			}
-			let vuser = request.user.to_string();
-			let vauth = request.auth.to_string();
+			let vuser = entry.get::<&str, &str>("user").to_string();
 			let vname= entry.get::<&str, &str>("name").to_string();
 			let vage = entry.get::<u16, &str>("age");
 			let vphone = entry.get::<&str, &str>("name").clone().to_string();
 			let vgender = entry.get::<&str, &str>("gender").clone().to_string();
-			let vcontacts = entry.get::<&str, &str>("contacts").split_whitespace().collect::<Vec<&str>>();
+			let vcontacts = entry.get::<&str, &str>("contacts").split(":").collect::<Vec<&str>>();
 			let mut wcontacts: Vec<String> = vec!();
 			for i in vcontacts{
 				wcontacts.push(i.to_string());
@@ -121,7 +134,6 @@ async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> J
 			let vratings = entry.get::<&str, &str>("ratings").clone().to_string();
 			let newprof = Profile{
 				user: vuser,
-				auth: vauth,
 				name: vname,
 				age: vage,
 				phone: vphone,
@@ -147,9 +159,5 @@ fn rocket() -> _ {
 }
 
 fn badprof() -> Json<Profile>{
-	Json(Profile{user:"none".to_string(), auth:"none".to_string(), name:"none".to_string(), age:0, phone:"none".to_string(), gender:"none".to_string(),contacts:vec!(),ratings:"".to_string()})
-}
-
-fn updateprof(){
-	
+	Json(Profile{user:"none".to_string(), name:"none".to_string(), age:0, phone:"none".to_string(), gender:"none".to_string(),contacts:vec!(),ratings:"".to_string()})
 }
