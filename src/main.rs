@@ -1,6 +1,6 @@
 #[macro_use] extern crate rocket;
 use std::net::IpAddr;
-
+use geoutils::{Location as Loc, Distance};
 use rocket_db_pools::{sqlx::{self,Row}, Database, Connection};
 use serde::{Deserialize, Serialize};
 use rocket::serde::json::{Json, Value, json};
@@ -218,12 +218,56 @@ async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkReque
 	json!({"request":request_id})
 }
 
+
+#[get("/trip/<ID>")]
+async fn walk_wizard(mut db: Connection<Users>, ID: &str) -> String{
+	for i in vec!(';','\\','*'){
+		if ID.contains(i) {
+			panic!("Illegal input in trip ID!");
+		}
+	}
+	let trip = sqlx::query("SELECT Dest FROM Requests WHERE ID = ?").bind(&ID).fetch_one(&mut *db).await.unwrap();
+	if trip.get::<&str, &str>("Trip").len() > 1 { // a suitable match was already found
+		return String::from("Confirmed");
+	}
+	let dest: String = trip.get("Dest");
+	let curpos = Loc::new(trip.get::<&str, &str>("Lat").parse::<f32>().unwrap(), trip.get::<&str, &str>("Long").parse::<f32>().unwrap());
+	println!("Running matching wizard for trip {} bound for {}",&ID,&dest);
+	let peers = sqlx::query("SELECT * FROM Requests WHERE Dest = ?").bind(&dest).fetch_all(&mut *db).await.unwrap();
+	let mut leastdist = 1000000.0; //meters 
+	let mut bestmatch_ID:String = "0000".to_string();
+	let mut bestmatch_user:String = "nobody".to_string();
+	for peer in peers{
+		if peer.get::<&str, &str>("Dest") != dest {continue;}
+		let pos = Loc::new(peer.get::<&str, &str>("Lat").parse::<f32>().unwrap(), peer.get::<&str, &str>("Long").parse::<f32>().unwrap());
+		if pos.haversine_distance_to(&curpos).meters() < leastdist {
+			leastdist = pos.haversine_distance_to(&curpos).meters();
+			bestmatch_ID = peer.get("ID");
+			bestmatch_user = peer.get("User");
+		}
+	}
+	if leastdist < 1000000.0 {
+		let trip_id = OsRng.next_u32().to_string();
+		// Possible status codes: 0-cancelled, 1-pending, 2-inprogress, 3-complete
+		sqlx::query("INSERT INTO Trips (ID, Dest, user1, user2, status) VALUES(?, ?, ?, ?, 1)")
+		.bind(&trip_id)
+		.bind(dest)
+		.bind(trip.get::<&str, &str>("user"))
+		.bind(bestmatch_user)
+		.execute(&mut *db).await.unwrap();
+		sqlx::query("UPDATE Requests SET Trip = ? WHERE ID = ?").bind(&trip_id).bind(ID).execute(&mut *db).await.unwrap();
+		sqlx::query("UPDATE Requests SET Trip = ? WHERE ID = ?").bind(&trip_id).bind(bestmatch_ID).execute(&mut *db).await.unwrap();
+		return String::from("Confirmed");
+	}
+	String::from("pending")
+}
+
 #[derive(Database)]
 #[database("Users")]
 struct Users(sqlx::SqlitePool);
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler, walk_request_handler]).attach(Users::init())
+    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler, walk_request_handler, walk_wizard]).attach(Users::init())
 }
 

@@ -510,6 +510,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "geoutils"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36d244a08113319b5ebcabad2b8b7925732d15eec46d7e7ac3c11734f3b7a6ad"
+
+[[package]]
 name = "getrandom"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -928,6 +934,7 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 name = "osnap-api"
 version = "0.1.0"
 dependencies = [
+ "geoutils",
  "rand_core",
  "rocket",
  "rocket_db_pools",

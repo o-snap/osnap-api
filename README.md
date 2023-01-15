@@ -64,8 +64,7 @@ The server will then try to match the user with another user based on their pref
 
 ```JSON
 {
-	"user": "appleseed",
-	"tripID": "9a95"
+	"trip": "9a95"
 }
 ```
 
@@ -74,7 +73,7 @@ Subsequent requests concerning a trip will be directed to the `/trip/{tripID}` e
 * `pending` - the server is still trying to find a walking buddy
 * `confirmed` - A partner was found and we're ready to go
 * `failed` - A partner could not be found
-* `inprog` - both users have accepted trip
+
 
 No further data is provided over the GET interface for privacy. Once the status changes to `confirmed`, the client should POST to the same `/trip/{tripID}` endpoint:
 ```JSON
