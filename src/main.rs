@@ -5,6 +5,8 @@ use rocket_db_pools::{sqlx::{self,Row}, Database, Connection};
 use serde::{Deserialize, Serialize};
 use rocket::serde::json::{Json, Value, json};
 use rand_core::{RngCore, OsRng};
+use std::{thread, time, time::Duration};
+use crossbeam::channel::{self, unbounded, Receiver};
 
 // TODO: Impliment request guards for data integrity & security
 #[derive(Deserialize, Clone)]
@@ -91,6 +93,19 @@ struct Signin<'r>{
 	user: &'r str,
 	password: &'r str,
 }
+#[derive(Clone)]
+struct AlertComm{
+	armed: bool,
+	start: time::Instant,
+	name: String,
+	dest: String,
+	contacts: String
+}
+
+struct Persist {
+    alertsnd: channel::Sender<AlertComm>,
+}
+
 
 //goofy ahh functions due to serde quirk
 fn none() -> &'static str {
@@ -339,6 +354,29 @@ struct Users(sqlx::SqlitePool);
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler, walk_request_handler, walk_wizard, walkman, peerinfo]).attach(Users::init())
+	let (asend, arecv) = unbounded();
+	launch_alert_thread(arecv);
+    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler, walk_request_handler, walk_wizard, walkman, peerinfo])
+	.attach(Users::init()).manage(Persist{alertsnd: asend})
 }
 
+fn launch_alert_thread(reciever: Receiver<AlertComm>){
+	thread::spawn(move || {
+		loop {
+			let mut store:Vec<AlertComm> = vec!();
+			match reciever.try_recv(){
+				Ok(msg) => {
+					if msg.armed.clone(){
+						let name = msg.name.clone();
+						for i in store.as_slice(){
+						if i.name == name{break;}
+						}
+						store.push(msg);
+					}
+				}
+				Err(_) => thread::sleep(Duration::from_millis(15))
+			}
+
+		}
+	});
+}
