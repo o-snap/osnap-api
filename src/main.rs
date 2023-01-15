@@ -248,8 +248,8 @@ async fn walk_wizard(mut db: Connection<Users>, ID: &str) -> String{
 	}
 	if leastdist < 1000000.0 {
 		let trip_id = OsRng.next_u32().to_string();
-		// Possible status codes: 0-cancelled, 1-pending, 2-inprogress, 3-complete
-		sqlx::query("INSERT INTO Trips (ID, Dest, user1, user2, status) VALUES(?, ?, ?, ?, 1)")
+		// Possible status codes: 0-cancelled, 2-pending, 4-inprogress, 6-complete
+		sqlx::query("INSERT INTO Trips (ID, Dest, user1, user2, status) VALUES(?, ?, ?, ?, 2)")
 		.bind(&trip_id)
 		.bind(dest)
 		.bind(trip.get::<&str, &str>("user"))
@@ -261,6 +261,44 @@ async fn walk_wizard(mut db: Connection<Users>, ID: &str) -> String{
 	}
 	String::from("pending")
 }
+
+#[post("/trip/<ID>", format="json", data = "<request>")]
+async fn walkman(mut db: Connection<Users>, request: Json<WalkResponce<'_>>, ID: &str) -> Value{
+	// make sure client is authorized
+	if sqlx::query("SELECT auth from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
+		return json!({"request":"error: unauthorized"});
+	}
+	// make sure trip exists 
+	let trip = sqlx::query("SELECT * from Trips WHERE ID = ?").bind(ID).fetch_one(&mut *db).await.unwrap();
+	if trip.is_empty(){
+		return json!({"request":"nonexistant"});
+	}
+	let mut stat = trip.get::<u16, &str>("status");
+	let mut fs = 0;
+	if stat == 0{
+		return json!({"request":"cancelled by peer"});
+	}
+	match request.operation {
+		"accept" => stat += 1,
+		"decline" => stat = 0,
+		_ => return json!({"request":"invalid"})
+	}
+	if request.failsafe {
+		fs = 1;
+	}
+	let mut user = "u1fs";
+	if trip.get::<&str, &str>("user2") == request.user{
+		user = "u2fs"
+	}
+	sqlx::query("UPDATE Trips SET status = ?, ? = ? WHERE ID = ?")
+	.bind(stat)
+	.bind(user)
+	.bind(fs)
+	.bind(ID)
+	.execute(&mut *db).await.unwrap();
+	json!({"request":"ok"})
+}
+
 
 #[derive(Database)]
 #[database("Users")]
