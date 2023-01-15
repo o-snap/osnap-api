@@ -176,10 +176,8 @@ async fn signup_handler(mut db: Connection<Users>, request: Json<Signup<'_>>, ad
 			"status": "unauthorized"
 		});
 	}
-	let auth = OsRng.next_u32().to_string();
-	sqlx::query("INSERT INTO Users (user,auth,name,phone,password) VALUES(?, ?, ?, ?, ?)")
+	sqlx::query("INSERT INTO Users (user,name,phone,password) VALUES(?, ?, ?, ?)")
 	.bind(request.user)
-	.bind(auth)
 	.bind(request.name)
 	.bind(request.phone)
 	.bind(request.password)
@@ -190,8 +188,12 @@ async fn signup_handler(mut db: Connection<Users>, request: Json<Signup<'_>>, ad
 
 #[post("/signin", format="json", data = "<request>")]
 async fn signin_handler(mut db: Connection<Users>, request: Json<Signin<'_>>) -> Value{
-	match sqlx::query("SELECT * from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await {
-		Ok(row) => if row.get::<&str, &str>("password") == request.password {return json!({"login": row.get::<&str, &str>("auth")})},
+	let auth = OsRng.next_u32().to_string();
+	match sqlx::query("SELECT password from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await {
+		Ok(row) => {if row.get::<&str, &str>("password") == request.password {
+			sqlx::query("UPDATE Users SET auth = ? WHERE user = ?").bind(&auth).bind(request.user).execute(&mut *db).await.unwrap();
+			return json!({"login": auth})
+		}}
 		Err(_) => return json!({"login": "noaccount"})
 	}
 	json!({"login": "bad"})
