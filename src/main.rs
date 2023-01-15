@@ -48,12 +48,12 @@ pub struct Location<'r> {
 	longitude: &'r str
 }
 #[derive(Serialize)]
-pub struct PubProfile<'r> {
-	name: &'r str,
-	approxdist: &'r str,
+pub struct PubProfile {
+	name: String,
+	approxdist: String,
 	avgrating: f32,
 	numratings: u32,
-	picture: &'r str
+	picture: String
 }
 #[derive(Deserialize)]
 pub struct WalkResponce<'r>{
@@ -62,6 +62,12 @@ pub struct WalkResponce<'r>{
 	operation: &'r str,
 	#[serde(default = "falsebool")]
 	failsafe: bool
+}
+
+#[derive(Deserialize)]
+pub struct AuthOnly<'r>{
+	user: &'r str,
+	auth: &'r str,
 }
 
 #[derive(Deserialize)]
@@ -299,6 +305,33 @@ async fn walkman(mut db: Connection<Users>, request: Json<WalkResponce<'_>>, ID:
 	json!({"request":"ok"})
 }
 
+#[post("/trip/<ID>/buddy", format="json", data = "<request>")]
+async fn peerinfo(mut db: Connection<Users>, request: Json<AuthOnly<'_>>, ID: &str) -> Json<PubProfile>{
+	// make sure client is authorized
+	if sqlx::query("SELECT auth from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
+		panic!("Unauthorized user!");
+	}
+	let trip = sqlx::query("SELECT * from Trips WHERE ID = ?").bind(ID).fetch_one(&mut *db).await.unwrap();
+	if trip.is_empty(){
+		panic!("Bad trip!");
+	}
+	let mut buddy = "user2";
+	if trip.get::<&str, &str>("user1") != request.user{
+		buddy = "user1";
+	}
+	let buddyname = trip.get::<&str, &str>(buddy);
+	let buddyprof = sqlx::query("SELECT * FROM Users WHERE user = ?").bind(buddyname).fetch_one(&mut *db).await.unwrap();
+	let ratings = buddyprof.get::<&str, &str>("ratings").split(",");
+	let mut numrate = 0;
+	let mut avg = 0.0;
+	for i in ratings{
+		numrate += 1;
+		avg += i.parse::<f32>().unwrap();
+	}
+	let vname = buddyprof.get::<&str, &str>("name").to_string();
+
+	Json(PubProfile { name: vname, approxdist: "Not implimented".to_string(), avgrating: avg, numratings: numrate, picture: "Not implimented!".to_string() })
+}
 
 #[derive(Database)]
 #[database("Users")]
@@ -306,6 +339,6 @@ struct Users(sqlx::SqlitePool);
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler, walk_request_handler, walk_wizard]).attach(Users::init())
+    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler, walk_request_handler, walk_wizard, walkman, peerinfo]).attach(Users::init())
 }
 
