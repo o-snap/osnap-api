@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use rocket::serde::json::{Json, Value, json};
 use rand_core::{RngCore, OsRng};
 
+// TODO: Impliment request guards for data integrity & security
 #[derive(Deserialize, Clone)]
 pub struct ProfRequest<'r> {
 	user: &'r str,
@@ -199,12 +200,30 @@ async fn signin_handler(mut db: Connection<Users>, request: Json<Signin<'_>>) ->
 	json!({"login": "bad"})
 }
 
+
+#[post("/request", format="json", data = "<request>")]
+async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkRequest<'_>>) -> Value{
+	// make sure client is authorized
+	if sqlx::query("SELECT auth from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
+		return json!({"request":"failed"});
+	}
+	let request_id = OsRng.next_u32().to_string();
+	sqlx::query("INSERT INTO Requests (ID,User,Dest,Lat,Long) VALUES(?, ?, ?, ?, ?)")
+	.bind(&request_id)
+	.bind(request.user)
+	.bind(request.dest)
+	.bind(request.loc.latitude)
+	.bind(request.loc.longitude)
+	.execute(&mut *db).await.unwrap();
+	json!({"request":request_id})
+}
+
 #[derive(Database)]
 #[database("Users")]
 struct Users(sqlx::SqlitePool);
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler]).attach(Users::init())
+    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler, walk_request_handler]).attach(Users::init())
 }
 
