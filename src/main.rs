@@ -1,5 +1,4 @@
 #[macro_use] extern crate rocket;
-use argon2::{password_hash::PasswordHasher,Argon2};
 use rocket_db_pools::{sqlx::{self,Row}, Database, Connection};
 use rand_core::{RngCore, OsRng};
 use serde::{Deserialize, Serialize};
@@ -21,16 +20,16 @@ pub struct ProfRequest<'r> {
 	contacts: Vec<&'r str>
 }
 
-#[derive(Serialize)]
-pub struct Profile<'r> {
-	user: &'r str,
-	auth: &'r str,
-	name: &'r str,
+#[derive(Serialize, Clone)]
+pub struct Profile {
+	user: String,
+	auth: String,
+	name: String,
 	age: u16,
-	gender: &'r str,
-	phone: &'r str,
-	contacts: Vec<&'r str>,
-//	ratings: Vec<u8>
+	gender: String,
+	phone: String,
+	contacts: Vec<String>,
+	ratings: String
 }
 
 #[derive(Deserialize)]
@@ -102,14 +101,38 @@ async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> J
 
 	match sqlx::query("SELECT * from Users WHERE name = ?").bind(request.user).fetch_one(&mut *db).await{
 		Ok(entry) => {
-			if entry.get("auth") != request.auth{
+			if entry.get::<&str, &str>("auth") != request.auth{
 				return badprof();
 				}
-			if request.operation == "update"
+			if request.operation == "update"{
+			updateprof();
 			}
+			let vuser = request.user.to_string();
+			let vauth = request.auth.to_string();
+			let vname= entry.get::<&str, &str>("name").to_string();
+			let vage = entry.get::<u16, &str>("age");
+			let vphone = entry.get::<&str, &str>("name").clone().to_string();
+			let vgender = entry.get::<&str, &str>("gender").clone().to_string();
+			let vcontacts = entry.get::<&str, &str>("contacts").split_whitespace().collect::<Vec<&str>>();
+			let mut wcontacts: Vec<String> = vec!();
+			for i in vcontacts{
+				wcontacts.push(i.to_string());
+			}
+			let vratings = entry.get::<&str, &str>("ratings").clone().to_string();
+			let newprof = Profile{
+				user: vuser,
+				auth: vauth,
+				name: vname,
+				age: vage,
+				phone: vphone,
+				gender: vgender,
+				contacts: wcontacts,
+				ratings: vratings
+			};
+			return Json(newprof);
 		}
-		Err(e) => {
-			return badprof;
+		Err(_) => {
+			return badprof();
 		}
 	}
 }
@@ -120,11 +143,13 @@ struct Users(sqlx::SqlitePool);
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![index]).attach(Users::init())
+    rocket::build().mount("/", routes![index, profile]).attach(Users::init())
 }
 
 fn badprof() -> Json<Profile>{
-	Json(Profile{user:"none", auth:"none", name:"none", age:0, phone:"none", gender:"none",contacts:vec!()})
+	Json(Profile{user:"none".to_string(), auth:"none".to_string(), name:"none".to_string(), age:0, phone:"none".to_string(), gender:"none".to_string(),contacts:vec!(),ratings:"".to_string()})
 }
 
-fn updateprof()
+fn updateprof(){
+	
+}
