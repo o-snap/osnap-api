@@ -79,6 +79,12 @@ struct Signup<'r>{
 	password: &'r str,
 }
 
+#[derive(Deserialize)]
+struct Signin<'r>{
+	user: &'r str,
+	password: &'r str,
+}
+
 //goofy ahh functions due to serde quirk
 fn none() -> &'static str {
 	"none"
@@ -104,7 +110,7 @@ fn index() -> &'static str {
 #[post("/profile", format="json", data = "<request>")]
 async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> Json<Profile>{
 
-	match sqlx::query("SELECT * from Users WHERE name = ?").bind(request.user).fetch_one(&mut *db).await{
+	match sqlx::query("SELECT * from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await{
 		Ok(entry) => {
 			if entry.get::<&str, &str>("auth") != request.auth{
 				return badprof();
@@ -181,12 +187,22 @@ async fn signup_handler(mut db: Connection<Users>, request: Json<Signup<'_>>, ad
 	json!({"status": "ok"})
 
 }
+
+#[post("/signin", format="json", data = "<request>")]
+async fn signin_handler(mut db: Connection<Users>, request: Json<Signin<'_>>) -> Value{
+	match sqlx::query("SELECT * from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await {
+		Ok(row) => if row.get::<&str, &str>("password") == request.password {return json!({"login": row.get::<&str, &str>("auth")})},
+		Err(_) => return json!({"login": "noaccount"})
+	}
+	json!({"login": "bad"})
+}
+
 #[derive(Database)]
 #[database("Users")]
 struct Users(sqlx::SqlitePool);
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![index, profile, signup_handler]).attach(Users::init())
+    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler]).attach(Users::init())
 }
 

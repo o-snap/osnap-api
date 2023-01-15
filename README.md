@@ -170,9 +170,9 @@ In future releases, we hope to integrate with SSO via microsoft accounts but for
 ```
 **NEVER** send the user's password in plaintext to the API!!!
 The server needs to verify the user's status as a member of the WPI community. The easiest (and cheapest) way to impliment this is by checking that, during account creation, the user's IP is within WPI's public IPv4 block. Sending an email would be a more reliable method, but could not be implimented in time. The server will return a JSON with a single field, `status`, which will be set to either `unauthorized` or `ok`.
-If the server returns OK, direct users to the signin page or, better yet, cache their credentials and automatically POST them to `/login` to continue.
+If the server returns OK, direct users to the signin page or, better yet, cache their credentials and automatically POST them to `/signin` to continue.
 
-To log in an existing user, POST to `/login`:
+To log in an existing user, POST to `/signin`:
 ```JSON
 {
 	"email": "jappleseed@wpi.edu",
@@ -181,3 +181,21 @@ To log in an existing user, POST to `/login`:
 }
 ```
 to which the server will respond with an auth token to be used in future transactions (should be stored as a secure cookie client-side) or the word "bad"
+
+```JSON
+{
+	"login": "29ba3cf90733d6ae908fbf"	
+}
+```
+or
+```JSON
+{
+	"login": "bad"	
+}
+```
+or 
+```JSON
+{
+	"login": "noaccount"	
+}
+```
