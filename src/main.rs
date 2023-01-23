@@ -22,7 +22,7 @@ pub struct ProfRequest<'r> {
 	#[serde(default = "defaultint")]
 	age: u16,
 	#[serde(default = "none")]
-	gender: &'r str,
+	gender: &'r str,+
 	#[serde(default = "emptyvec")]
 	contacts: Vec<&'r str>
 }
