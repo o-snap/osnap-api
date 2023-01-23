@@ -11,7 +11,8 @@ use crossbeam::channel::{self, unbounded, Receiver};
 // Define structs for automatic JSON Parsing 
 // TODO: Impliment request guards for data integrity & security
 
-// Struct for a profile data request. TODO: move update requests to separate struct and server dir
+// Struct for a profile data request. 
+// TODO: move update requests to separate struct and server dir
 #[derive(Deserialize, Clone)]
 pub struct ProfRequest<'r> {
 	user: &'r str,
@@ -49,7 +50,9 @@ pub struct WalkRequest<'r> {
 	dest: &'r str,
 	loc: Location<'r>
 }
-// Location struct. TODO: Might remove and just have comma separated string
+// Location struct.
+// TODO: remove location struct
+// we can switch to a comma separated string or whatever's best for the maps API
 #[derive(Deserialize)]
 pub struct Location<'r> {
 	latitude: &'r str,
@@ -96,7 +99,6 @@ struct Signup<'r>{
 	password: &'r str,
 }
 // different from authonly as this is a password, not an auth token 
-// TODO: remove and just use AuthOnly (or msft oAUTH)
 #[derive(Deserialize)]
 struct Signin<'r>{
 	user: &'r str,
@@ -120,7 +122,8 @@ struct Persist {
 
 
 //goofy ahh functions due to serde quirk 
-//TODO: can probably be removed once user data requests and update are moved to separate endpoints
+//TODO: Reassess serde default value functions
+// they may not be needed after the user request refactor
 fn none() -> &'static str {
 	"none"
 }
@@ -142,8 +145,9 @@ fn index() -> &'static str {
     "oSNAP API server v0.1.0-goathack"
 }
 // profile data request or update mechanism.
-// TODO: move update mechanism to separate function
-// TODO: look into using results and status codes so we don't need emptyprof
+// TODO: move user data update mechanism to separate function (maybe profile data can become a GET?)
+// should significantly reduce complexity of profile request handler. Could also consolidate with the pubprofile handler
+// TODO: look into using results and HTTP status codes so we don't need emptyprof
 #[post("/api/profile", format="json", data = "<request>")]
 async fn profile(mut db: Connection<Users>, request: Json<ProfRequest<'_>>) -> Json<Profile>{
 
@@ -205,7 +209,8 @@ fn badprof() -> Json<Profile>{
 // profile sign up handler
 #[post("/api/signup", format="json", data = "<request>")]
 async fn signup_handler(mut db: Connection<Users>, request: Json<Signup<'_>>, addr: IpAddr) -> Value{
-	// grab ip address TODO: remove when oAUTH is implimended
+	// grab ip address 
+	// TODO: remove IP address collection when oAUTH is implimended
 	let mut ip = addr.to_string();
 	ip = ip.get(0..7).unwrap().to_string();
 	if ip != "130.215" && ip != "207.174"{
@@ -229,15 +234,17 @@ async fn signup_handler(mut db: Connection<Users>, request: Json<Signup<'_>>, ad
 #[post("/api/signin", format="json", data = "<request>")]
 async fn signin_handler(mut db: Connection<Users>, request: Json<Signin<'_>>) -> Value{
 	// generate a random authentication token
-	// TODO: only generate on successful auth to prevent resource exhaustion
+	// TODO: only generate auth token on successful login
+	// its an unnecessary waste of time and server resources
 	// TODO: I don't think OsRNng is considered secure. Better RNG? Change to u64?
+	// since this token will be served in a Rocket encrypted cookie, I don't think it should be too bad to just use u64
 	let auth = OsRng.next_u32().to_string();
 	// grab user data from SQL db
 	match sqlx::query("SELECT password from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await {
 		//TODO: add password hash check with argon2
 		Ok(row) => {if row.get::<&str, &str>("password") == request.password {
 			// if password matches, issue token. 
-			// TODO: token expiration
+			// TODO: add auth token expiration
 			sqlx::query("UPDATE Users SET auth = ? WHERE user = ?").bind(&auth).bind(request.user).execute(&mut *db).await.unwrap();
 			return json!({"login": auth})
 		}}
@@ -254,7 +261,7 @@ async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkReque
 		return json!({"request":"failed"});
 	}
 	// generate a random request id 
-	// TODO: (maybe) use UUid crate?
+	// TODO: (maybe) use UUid crate for request IDs
 	let request_id = OsRng.next_u32().to_string();
 	// create an entry in the database's Requests table for the backend to match requests
 	sqlx::query("INSERT INTO Requests (id,User,Dest,Lat,Long) VALUES(?, ?, ?, ?, ?)")
@@ -268,11 +275,13 @@ async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkReque
 }
 
 // tries to find a walking buddy for a user and returns a status code
-// TODO: return JSON not string
+// TODO: refactor all functions to return JSON not strings
+// even though this endpoint should only return a single word, it's best to keep things consistant.
 #[get("/api/trip/<id>")]
 async fn walk_wizard(mut db: Connection<Users>, id: &str) -> String{
 	// since this function does not use JSON inputs, we can't use request guards to validate data
-	// TODO: check if we acutally can use requests guards for this
+	// TODO: replace tripID sanitization with request guards
+	// walk_wizard's sanitization is crazy inefficient. 
 	for i in [';','\\','*']{
 		if id.contains(i) {
 			panic!("Illegal input in trip id!");
@@ -398,8 +407,9 @@ fn rocket() -> _ {
 * launch function returns a join handle which can be periodically checked to make sure it's still alive and respawn if necessary. 
 */
 fn launch_alert_thread(reciever: Receiver<AlertComm>) -> thread::JoinHandle<()> {
-	//TODO: switch to thread builder
-	//TODO: add respawn functionality in walk request handler
+	// TODO: switch the alread thread to thread builder
+	// might be nice to be able to name the thread
+	// TODO: add alert thread respawn functionality in walk request handler
 	thread::spawn(move || {
 		loop {
 			//initialize a storage area for alert data
