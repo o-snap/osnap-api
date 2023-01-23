@@ -22,7 +22,7 @@ pub struct ProfRequest<'r> {
 	#[serde(default = "defaultint")]
 	age: u16,
 	#[serde(default = "none")]
-	gender: &'r str,+
+	gender: &'r str,
 	#[serde(default = "emptyvec")]
 	contacts: Vec<&'r str>
 }
@@ -253,11 +253,11 @@ async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkReque
 	if sqlx::query("SELECT auth from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
 		return json!({"request":"failed"});
 	}
-	// generate a random request ID 
-	// TODO: (maybe) use UUID crate?
+	// generate a random request id 
+	// TODO: (maybe) use UUid crate?
 	let request_id = OsRng.next_u32().to_string();
 	// create an entry in the database's Requests table for the backend to match requests
-	sqlx::query("INSERT INTO Requests (ID,User,Dest,Lat,Long) VALUES(?, ?, ?, ?, ?)")
+	sqlx::query("INSERT INTO Requests (id,User,Dest,Lat,Long) VALUES(?, ?, ?, ?, ?)")
 	.bind(&request_id)
 	.bind(request.user)
 	.bind(request.dest)
@@ -269,62 +269,62 @@ async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkReque
 
 // tries to find a walking buddy for a user and returns a status code
 // TODO: return JSON not string
-#[get("/api/trip/<ID>")]
-async fn walk_wizard(mut db: Connection<Users>, ID: &str) -> String{
+#[get("/api/trip/<id>")]
+async fn walk_wizard(mut db: Connection<Users>, id: &str) -> String{
 	// since this function does not use JSON inputs, we can't use request guards to validate data
 	// TODO: check if we acutally can use requests guards for this
 	for i in [';','\\','*']{
-		if ID.contains(i) {
-			panic!("Illegal input in trip ID!");
+		if id.contains(i) {
+			panic!("Illegal input in trip id!");
 		}
 	}
-	// search requests table for requests matching the provided request ID
-	let trip = sqlx::query("SELECT * FROM Requests WHERE ID = ?").bind(ID).fetch_one(&mut *db).await.unwrap();
+	// search requests table for requests matching the provided request id
+	let trip = sqlx::query("SELECT * FROM Requests WHERE id = ?").bind(id).fetch_one(&mut *db).await.unwrap();
 	if trip.get::<&str, &str>("Trip").len() > 1 { // a suitable match was already found
 		// if there is any data in the trip field, wizard already found trip
 		return String::from("Confirmed");
 	}
 	let dest: String = trip.get("Dest");
 	let curpos = Loc::new(trip.get::<&str, &str>("Lat").parse::<f32>().unwrap(), trip.get::<&str, &str>("Long").parse::<f32>().unwrap());
-	println!("Running matching wizard for trip {} bound for {}",ID,&dest);
+	println!("Running matching wizard for trip {} bound for {}",id,&dest);
 	let peers = sqlx::query("SELECT * FROM Requests WHERE Dest = ?").bind(&dest).fetch_all(&mut *db).await.unwrap();
 	let mut leastdist = 1000000.0; //meters 
-	let mut bestmatch_ID:String = "0000".to_string();
+	let mut bestmatch_id:String = "0000".to_string();
 	let mut bestmatch_user:String = "nobody".to_string();
 	for peer in peers{
 		if peer.get::<&str, &str>("Dest") != dest {continue;}
 		let pos = Loc::new(peer.get::<&str, &str>("Lat").parse::<f32>().unwrap(), peer.get::<&str, &str>("Long").parse::<f32>().unwrap());
 		if pos.haversine_distance_to(&curpos).meters() < leastdist {
 			leastdist = pos.haversine_distance_to(&curpos).meters();
-			bestmatch_ID = peer.get("ID");
+			bestmatch_id = peer.get("id");
 			bestmatch_user = peer.get("User");
 		}
 	}
 	if leastdist < 1000000.0 {
 		let trip_id = OsRng.next_u32().to_string();
 		// Possible status codes: 0-cancelled, 2-pending, 4-inprogress, 6-complete
-		sqlx::query("INSERT INTO Trips (ID, Dest, user1, user2, status) VALUES(?, ?, ?, ?, 2)")
+		sqlx::query("INSERT INTO Trips (id, Dest, user1, user2, status) VALUES(?, ?, ?, ?, 2)")
 		.bind(&trip_id)
 		.bind(dest)
 		.bind(trip.get::<&str, &str>("user"))
 		.bind(bestmatch_user)
 		.execute(&mut *db).await.unwrap();
-		sqlx::query("UPDATE Requests SET Trip = ? WHERE ID = ?").bind(&trip_id).bind(ID).execute(&mut *db).await.unwrap();
-		sqlx::query("UPDATE Requests SET Trip = ? WHERE ID = ?").bind(&trip_id).bind(bestmatch_ID).execute(&mut *db).await.unwrap();
+		sqlx::query("UPDATE Requests SET Trip = ? WHERE id = ?").bind(&trip_id).bind(id).execute(&mut *db).await.unwrap();
+		sqlx::query("UPDATE Requests SET Trip = ? WHERE id = ?").bind(&trip_id).bind(bestmatch_id).execute(&mut *db).await.unwrap();
 		return String::from("Confirmed");
 	}
 	String::from("pending")
 }
 
 // Manage the walk confirmation stage. Both users must accept the walk to continue
-#[post("/api/trip/<ID>", format="json", data = "<request>")]
-async fn walkman(mut db: Connection<Users>, request: Json<WalkResponce<'_>>, ID: &str) -> Value{
+#[post("/api/trip/<id>", format="json", data = "<request>")]
+async fn walkman(mut db: Connection<Users>, request: Json<WalkResponce<'_>>, id: &str) -> Value{
 	// make sure client is authorized
 	if sqlx::query("SELECT auth from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
 		return json!({"request":"error: unauthorized"});
 	}
 	// make sure trip exists 
-	let trip = sqlx::query("SELECT * from Trips WHERE ID = ?").bind(ID).fetch_one(&mut *db).await.unwrap();
+	let trip = sqlx::query("SELECT * from Trips WHERE id = ?").bind(id).fetch_one(&mut *db).await.unwrap();
 	if trip.is_empty(){
 		return json!({"request":"nonexistant"});
 	}
@@ -345,22 +345,22 @@ async fn walkman(mut db: Connection<Users>, request: Json<WalkResponce<'_>>, ID:
 	if trip.get::<&str, &str>("user2") == request.user{
 		user = "u2fs"
 	}
-	sqlx::query("UPDATE Trips SET status = ?, ? = ? WHERE ID = ?")
+	sqlx::query("UPDATE Trips SET status = ?, ? = ? WHERE id = ?")
 	.bind(stat)
 	.bind(user)
 	.bind(fs)
-	.bind(ID)
+	.bind(id)
 	.execute(&mut *db).await.unwrap();
 	json!({"request":"ok"})
 }
 // Show a user the public profile of their assigned buddy
-#[post("/trip/<ID>/buddy", format="json", data = "<request>")]
-async fn peerinfo(mut db: Connection<Users>, request: Json<AuthOnly<'_>>, ID: &str) -> Json<PubProfile>{
+#[post("/trip/<id>/buddy", format="json", data = "<request>")]
+async fn peerinfo(mut db: Connection<Users>, request: Json<AuthOnly<'_>>, id: &str) -> Json<PubProfile>{
 	// make sure client is authorized
 	if sqlx::query("SELECT auth from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
 		panic!("Unauthorized user!");
 	}
-	let trip = sqlx::query("SELECT * from Trips WHERE ID = ?").bind(ID).fetch_one(&mut *db).await.unwrap();
+	let trip = sqlx::query("SELECT * from Trips WHERE id = ?").bind(id).fetch_one(&mut *db).await.unwrap();
 	if trip.is_empty(){
 		panic!("Bad trip!");
 	}
