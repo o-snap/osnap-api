@@ -50,9 +50,7 @@ pub struct WalkRequest<'r> {
 	dest: &'r str,
 	loc: Location<'r>
 }
-// Location struct.
-// TODO: remove location struct
-// we can switch to a comma separated string or whatever's best for the maps API
+// Location struct
 #[derive(Deserialize)]
 pub struct Location<'r> {
 	latitude: &'r str,
@@ -257,6 +255,8 @@ async fn signin_handler(mut db: Connection<Users>, request: Json<Signin<'_>>) ->
 #[post("/api/request", format="json", data = "<request>")]
 async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkRequest<'_>>) -> Value{
 	// make sure client is authorized
+	// TODO: Update request authentication to match new API spec
+	// the API no longer requires the username to be sent at all and the auth token was moved to a cookie from JSON body.
 	if sqlx::query("SELECT auth from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
 		return json!({"request":"failed"});
 	}
@@ -392,6 +392,8 @@ async fn peerinfo(mut db: Connection<Users>, request: Json<AuthOnly<'_>>, id: &s
 }
 
 // initialize SQLite database connection defined in Rocket.toml
+// TODO: Migrate from sqlite to postresql
+// sqlite driver is written in C making it unsafe
 #[derive(Database)]
 #[database("Users")]
 struct Users(sqlx::SqlitePool);
