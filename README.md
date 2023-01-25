@@ -1,3 +1,4 @@
+	name: &'r str,
 # O-Snap API
 This is the backend API for the goathacks O-Snap project.
 
@@ -48,18 +49,22 @@ As this process does not require any data in responce, this is one of the few en
 The user can request a partner by POSTING to `/api/request` in the following format
 ```JSON
 {
-	"destination": "Faraday Hall"
+	"destination": 	{
+		"latitude": "0.000000",
+		"longitude": "0.000000",
+	},
 	"curlocation":
 	{
 		"latitude": "0.000000",
 		"longitude": "0.000000",
 	},
 	"minbuddies": 1,
-	"maxbuddies": 2
+	"maxbuddies": 2,
+	"time": 1681978800
 }
 ```
 
-The server will then try to match the user with other user(s) based on their preferences, destination, and current location. As this process is not instant, the server will issue the user a session ID which will be used for any further requests pertaining to the trip. The response will look like:
+The server will then try to match the user with other user(s) based on their preferences, destination, and current location. The `time` field is the desired time of departure expressed in UNIX timestamp. As this process is not instant, the server will issue the user a session ID which will be used for any further requests pertaining to the trip. The response will look like:
 
 ```JSON
 {
@@ -145,7 +150,7 @@ When a valid client performs a GET request against the `inflight` endpoint, the 
 ```JSON
 {
 	"status": "inprog",
-	buddy: [
+	"buddy": [
 			{
 			"name": "Johnny Appleseed",
 			"curlocation":
@@ -190,7 +195,7 @@ This endpoint **must** be called whenever a trip is ended by the user. The termi
 In future releases, we hope to integrate with SSO via microsoft accounts but for now the API's server stores hashed user credentials. To add a user, POST to `/api/signup`:
 ```JSON
 {
-	"email": "jappleseed@wpi.edu",
+	"user": "jappleseed",
 	"name": "Johnny Appleseed",
 	"phone": "XXX-XXX-XXXX",
 	"password": "{USER PASSWORD}"
@@ -205,7 +210,7 @@ If the server returns `200` (Ok), direct users to the signin page or, better yet
 To log in an existing user, POST to `/api/signin`:
 ```JSON
 {
-	"email": "jappleseed@wpi.edu",
+	"user": "jappleseed",
 	"password": "{USER PASSWORD}"
 	
 }

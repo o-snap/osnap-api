@@ -1,4 +1,4 @@
-name: Rust and todo
+name: Build and Tests
 
 on:
   push:
@@ -20,9 +20,4 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-    - name: TODO to Issue
-      uses: alstr/todo-to-issue-action@v4
-      with: 
-        PROJECTS_SECRET: ${{ secrets.TODO_ISSUE_SECRET }}
-         
         
