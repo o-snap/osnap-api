@@ -1,11 +1,12 @@
+
 #[macro_use] extern crate rocket;
 #[cfg(test)] mod tests;
 use rocket::http::{Cookie, CookieJar};
 use std::net::IpAddr;
-use geoutils::{Location as Loc, Distance};
 use rocket_db_pools::{sqlx::{self,Row}, Database, Connection};
 use serde::{Deserialize, Serialize};
 use rocket::serde::json::{Json, Value, json};
+use rocket::response::status;
 use rand_core::{RngCore, OsRng};
 use std::{thread, time, time::Duration};
 use crossbeam::channel::{self, unbounded, Receiver};
@@ -33,30 +34,66 @@ struct Persist {
 // for now this just serves a version string, will become landing page once webservice is moved internally.
 #[get("/")]
 fn index() -> &'static str {
-    "oSNAP API server v0.1.0-goathack"
+    "oSNAP API server v0.1.1"
 }
-// profile data request or update mechanism.
-// TODO: move user data update mechanism to separate function (maybe profile data can become a GET?)
-// should significantly reduce complexity of profile request handler. Could also consolidate with the pubprofile handler
-// TODO: look into using results and HTTP status codes so we don't need emptyprof
-#[post("/api/profile/<user>", format="json", data = "<request>")]
-async fn profile(mut db: Connection<Users>, request: Json<ProfileUpdate<'_>>, user: &str) -> Json<Profile>{
 
+// Profile request mechanism
+#[post("/api/profile/<usern>")]
+async fn profile(mut db: Connection<Users>, usern: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<Json<Profile>>, status::Unauthorized<String>>{
+	// Check Client Authorization
+	// Get auth token cookie
+	let mut auth: Cookie;
+	match cookies.get_private("osnap-authtoken") {
+		Some(c) => auth = c.value(),
+		None => return Err("Client did not send authtoken cookie!"),
+	}
+	// verify auth token cookie
+	let record = sqlx::query("SELECT * FROM Users WHERE user = ?").bind(sanitizer(usern, FieldType::Alpha)).fetch_one(&mut *db).await?;
+	if record.try_get("auth")? != auth {
+		return Err("Auth token does not match! Try logging back in.");
+	}
+	return Ok(Profile{user: usern, name: &record.try_get("name")?, name: &record.try_get("age")?, gender: &record.try_get("gender")?, phone: &record.try_get("phone")?, contacts: &record.try_get("contacts")?});
+	
+}
+
+// profile data update mechanism.
+#[post("/api/profile/<user>", format="json", data = "<request>")]
+async fn profileup(mut db: Connection<Users>, request: Json<ProfileUpdate<'_>>, user: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<String>, status::Unauthorized<String>>{
+	// Check Client Authorization
+	// Get auth token cookie
+	let mut auth: Cookie;
+	match cookies.get_private("osnap-authtoken") {
+		Some(c) => auth = c.value(),
+		None => return Err("Client did not send authtoken cookie!"),
+	}
+	// verify auth token cookie
+	let expected = sqlx::query("SELECT auth FROM Users WHERE user = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
+	if expected.try_get("auth")? != auth {
+		return Err("Auth token does not match! Try logging back in.");
+	}
+	// if we get here, auth is good
+	if request.name != "none"{
+		sqlx::query("UPDATE Users SET name = ? WHERE user = ?").bind(sanitizer(request.name, FieldType::AlphaNum)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+	}
+	if request.gender != "none"{
+		sqlx::query("UPDATE Users SET gender = ? WHERE user = ?").bind(sanitizer(request.gender, FieldType::AlphaNum)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+	}
+	if request.phone != "none"{
+		sqlx::query("UPDATE Users SET phone = ? WHERE user = ?").bind(sanitizer(request.phone, FieldType::Phone)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+	}
+	if request.contacts != "none"{
+		sqlx::query("UPDATE Users SET contacts = ? WHERE user = ?").bind(sanitizer(request.contacts, FieldType::Phone)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+	}
+	if request.age != defaultint() {
+		sqlx::query("UPDATE Users SET age = ? WHERE user = ?").bind(request.age).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+	}
+
+Ok("Updated successfully.")
 }
 
 // profile sign up handler
 #[post("/api/signup", format="json", data = "<request>")]
 async fn signup_handler(mut db: Connection<Users>, request: Json<Signup<'_>>, addr: IpAddr) -> Value{
-	// grab ip address 
-	// TODO: remove IP address collection when oAUTH is implimended
-	let mut ip = addr.to_string();
-	ip = ip.get(0..7).unwrap().to_string();
-	if ip != "130.215" && ip != "207.174"{
-		// assume they're at WPI if the're within these address ranges (I know it's a really stupid way to do this but i'm on a short timetable)
-		return json!({
-			"status": "unauthorized"
-		});
-	}
 	// add user to database
 	// TODO: move password hashing to API side of things
 	sqlx::query("INSERT INTO Users (user,name,phone,password) VALUES(?, ?, ?, ?)")
@@ -93,7 +130,7 @@ async fn signin_handler(mut db: Connection<Users>, request: Json<Signin<'_>>) ->
 
 // function for backend walk request handling
 #[post("/api/request", format="json", data = "<request>")]
-async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkRequest<'_>>) -> Value{
+async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkRequest>) -> Value{
 	// make sure client is authorized
 	// TODO: Update request authentication to match new API spec
 	// the API no longer requires the username to be sent at all and the auth token was moved to a cookie from JSON body.
@@ -119,50 +156,7 @@ async fn walk_request_handler(mut db: Connection<Users>, request: Json<WalkReque
 // even though this endpoint should only return a single word, it's best to keep things consistant.
 #[get("/api/trip/<id>")]
 async fn walk_wizard(mut db: Connection<Users>, id: &str) -> String{
-	// since this function does not use JSON inputs, we can't use request guards to validate data
-	// TODO: replace tripID sanitization with request guards
-	// walk_wizard's sanitization is crazy inefficient. 
-	for i in [';','\\','*']{
-		if id.contains(i) {
-			panic!("Illegal input in trip id!");
-		}
-	}
-	// search requests table for requests matching the provided request id
-	let trip = sqlx::query("SELECT * FROM Requests WHERE id = ?").bind(id).fetch_one(&mut *db).await.unwrap();
-	if trip.get::<&str, &str>("Trip").len() > 1 { // a suitable match was already found
-		// if there is any data in the trip field, wizard already found trip
-		return String::from("Confirmed");
-	}
-	let dest: String = trip.get("Dest");
-	let curpos = Loc::new(trip.get::<&str, &str>("Lat").parse::<f32>().unwrap(), trip.get::<&str, &str>("Long").parse::<f32>().unwrap());
-	println!("Running matching wizard for trip {} bound for {}",id,&dest);
-	let peers = sqlx::query("SELECT * FROM Requests WHERE Dest = ?").bind(&dest).fetch_all(&mut *db).await.unwrap();
-	let mut leastdist = 1000000.0; //meters 
-	let mut bestmatch_id:String = "0000".to_string();
-	let mut bestmatch_user:String = "nobody".to_string();
-	for peer in peers{
-		if peer.get::<&str, &str>("Dest") != dest {continue;}
-		let pos = Loc::new(peer.get::<&str, &str>("Lat").parse::<f32>().unwrap(), peer.get::<&str, &str>("Long").parse::<f32>().unwrap());
-		if pos.haversine_distance_to(&curpos).meters() < leastdist {
-			leastdist = pos.haversine_distance_to(&curpos).meters();
-			bestmatch_id = peer.get("id");
-			bestmatch_user = peer.get("User");
-		}
-	}
-	if leastdist < 1000000.0 {
-		let trip_id = OsRng.next_u32().to_string();
-		// Possible status codes: 0-cancelled, 2-pending, 4-inprogress, 6-complete
-		sqlx::query("INSERT INTO Trips (id, Dest, user1, user2, status) VALUES(?, ?, ?, ?, 2)")
-		.bind(&trip_id)
-		.bind(dest)
-		.bind(trip.get::<&str, &str>("user"))
-		.bind(bestmatch_user)
-		.execute(&mut *db).await.unwrap();
-		sqlx::query("UPDATE Requests SET Trip = ? WHERE id = ?").bind(&trip_id).bind(id).execute(&mut *db).await.unwrap();
-		sqlx::query("UPDATE Requests SET Trip = ? WHERE id = ?").bind(&trip_id).bind(bestmatch_id).execute(&mut *db).await.unwrap();
-		return String::from("Confirmed");
-	}
-	String::from("pending")
+"Not implimented".to_string()
 }
 
 // Manage the walk confirmation stage. Both users must accept the walk to continue
@@ -202,34 +196,6 @@ async fn walkman(mut db: Connection<Users>, request: Json<WalkResponce<'_>>, id:
 	.execute(&mut *db).await.unwrap();
 	json!({"request":"ok"})
 }
-// Show a user the public profile of their assigned buddy
-#[post("/trip/<id>/buddy", format="json", data = "<request>")]
-async fn peerinfo(mut db: Connection<Users>, request: Json<AuthOnly<'_>>, id: &str) -> Json<PubProfile>{
-	// make sure client is authorized
-	if sqlx::query("SELECT auth from Users WHERE user = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
-		panic!("Unauthorized user!");
-	}
-	let trip = sqlx::query("SELECT * from Trips WHERE id = ?").bind(id).fetch_one(&mut *db).await.unwrap();
-	if trip.is_empty(){
-		panic!("Bad trip!");
-	}
-	let mut buddy = "user2";
-	if trip.get::<&str, &str>("user1") != request.user{
-		buddy = "user1";
-	}
-	let buddyname = trip.get::<&str, &str>(buddy);
-	let buddyprof = sqlx::query("SELECT * FROM Users WHERE user = ?").bind(buddyname).fetch_one(&mut *db).await.unwrap();
-	let ratings = buddyprof.get::<&str, &str>("ratings").split(",");
-	let mut numrate = 0;
-	let mut avg = 0.0;
-	for i in ratings{
-		numrate += 1;
-		avg += i.parse::<f32>().unwrap();
-	}
-	let vname = buddyprof.get::<&str, &str>("name").to_string();
-
-	Json(PubProfile { name: vname, approxdist: "Not implimented".to_string(), avgrating: avg, numratings: numrate, picture: "Not implimented!".to_string() })
-}
 
 // initialize SQLite database connection defined in Rocket.toml
 // TODO: Migrate from sqlite to postresql
@@ -242,7 +208,7 @@ struct Users(sqlx::SqlitePool);
 fn rocket() -> _ {
 	let (mut asend, arecv) = unbounded();
 	let mut hndl = launch_alert_thread(arecv);
-    rocket::build().mount("/", routes![index, profile, signup_handler, signin_handler, walk_request_handler, walk_wizard, walkman, peerinfo])
+    rocket::build().mount("/", routes![index, profile, profileup, signup_handler, signin_handler, walk_request_handler, walk_wizard, walkman])
 	.attach(Users::init()).manage(Persist{alertsnd: asend, thrdhndl: hndl})
 }
 /* Launches a dedicated thread to manage the failsafe system. Communication with this thread is done via the AlertComm struct and is 1-way.

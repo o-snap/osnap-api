@@ -25,14 +25,14 @@ pub struct ProfileUpdate<'r> {
 	gender: &'r str,
 	#[serde(default = "none")]
 	phone: &'r str,
-	#[serde(default = "emptyvec")]
-	contacts: Vec<&'r str>
+	#[serde(default = "none")]
+	contacts: &'r str
 }
 
 // request submitted by user to find walking buddy
 // TODO: add desired time of departure
 #[derive(Serialize, Deserialize)]
-pub struct WalkRequest<'r> {
+pub struct WalkRequest<> {
 	dest: Location,
 	loc: Location,
 	minbuddies: u8,
@@ -52,8 +52,7 @@ pub struct PubProfile {
 	approxdist: String,
 	avgrating: f32,
 	numratings: u32,
-	phone: String,
-	picture: String
+	phone: String
 }
 
 // enum to provide walk status during trip start
@@ -72,7 +71,7 @@ pub struct WalkResponce<'r>{
 
 // communications from client while walk in in progress
 #[derive(Serialize, Deserialize)]
-pub struct InFlightSet<'r> {
+pub struct InFlightSet<> {
 	curlocation: Location,
 	#[serde(default = "falsebool")]
 	distress: bool
@@ -121,16 +120,12 @@ pub struct Signin<'r>{
 fn none() -> &'static str {
 	"none"
 }
-fn defaultint() -> u16 {
+pub fn defaultint() -> u16 {
 	65535
 }
 
 fn falsebool()->bool{
 	false
-}
-
-fn emptyvec<'r>() -> Vec<&'r str>{
-        vec!()
 }
 
 // rule sets for input sanitization
@@ -140,7 +135,7 @@ pub enum FieldType {
 	AlphaNum,
 	Phone
 }
-
+// Santiizes data to be sent to SQL database. Does not return errors because this should be last line of defence. It's the frontend's job to give the user nice errors about their input, it's this functions job to prevent injection.
 pub fn sanitizer<'r>(inval: &'r str, kind: FieldType) -> String {
 	let mut outval = String::New();
 	let mut matchrange = true;
@@ -157,7 +152,7 @@ pub fn sanitizer<'r>(inval: &'r str, kind: FieldType) -> String {
 			if ch.is_alphanumeric() {outval.push(ch)}	
 			}
 			FieldType::Phone => {
-			if ch.is_digit() || ch == '-' {outval.push(ch)}
+			if ch.is_digit() || ch == '-' || ch ==',' {outval.push(ch)}
 			if outval.len() > 12 {outval.clear()}
 			}
 		}

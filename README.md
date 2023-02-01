@@ -1,4 +1,3 @@
-	name: &'r str,
 # O-Snap API
 This is the backend API for the goathacks O-Snap project.
 
