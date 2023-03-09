@@ -6,53 +6,54 @@ use chrono::{Utc, DateTime};
 // struct used to serve user data in JSON
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Profile {
-	user: String,
-	name: String,
-	age: u16,
-	gender: String,
-	phone: String,
-	contacts: Vec<String>,
-	ratings: String
+	pub user: String,
+	pub name: String,
+	pub age: i16,
+	pub gender: String,
+	pub phone: String,
+	pub contacts_names: Vec<String>,
+	pub contacts_phones: Vec<String>,
+	pub ratings: String
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ProfileUpdate<'r> {
 	#[serde(default = "none")]
-	name: &'r str,
+	pub name: &'r str,
 	#[serde(default = "defaultint")]
-	age: u16,
+	pub age: i16,
 	#[serde(default = "none")]
-	gender: &'r str,
+	pub gender: &'r str,
 	#[serde(default = "none")]
-	phone: &'r str,
+	pub phone: &'r str,
 	#[serde(default = "none")]
-	contacts: &'r str
+	pub contacts: &'r str
 }
 
 // request submitted by user to find walking buddy
 // TODO: add desired time of departure
 #[derive(Serialize, Deserialize)]
 pub struct WalkRequest<> {
-	dest: Location,
-	loc: Location,
-	minbuddies: u8,
-	maxbuddies: u8,
-	time: DateTime<Utc>
+	pub dest: Location,
+	pub loc: Location,
+	pub minbuddies: i8,
+	pub maxbuddies: i8,
+	pub time: DateTime<Utc>
 }
 // Location struct
 #[derive(Serialize, Deserialize)]
 pub struct Location {
-	latitude: String,
-	longitude: String
+	pub latitude: String,
+	pub longitude: String
 }
 // struct to serve profile data of other users, does not include sensitive info
 #[derive(Serialize, Deserialize)]
 pub struct PubProfile {
-	name: String,
-	approxdist: String,
-	avgrating: f32,
-	numratings: u32,
-	phone: String
+	pub name: String,
+	pub approxdist: String,
+	pub avgrating: f32,
+	pub numratings: u32,
+	pub phone: String
 }
 
 // enum to provide walk status during trip start
@@ -66,15 +67,15 @@ pub enum WalkStat {
 // used to deserialized user responses to walk buddies suggested by server
 #[derive(Deserialize)]
 pub struct WalkResponce<'r>{
-	operation: &'r str
+	pub operation: &'r str
 }
 
 // communications from client while walk in in progress
 #[derive(Serialize, Deserialize)]
 pub struct InFlightSet<> {
-	curlocation: Location,
+	pub curlocation: Location,
 	#[serde(default = "falsebool")]
-	distress: bool
+	pub distress: bool
 }
 
 // struct to contain buddys' locations for inflight
@@ -95,21 +96,21 @@ pub struct InFlightGet {
 #[derive(Serialize, Deserialize)]
 pub struct TripEnd {
 	curlocation: Location,
-	rating: u16
+	rating: i16
 }
 
 #[derive(Deserialize)]
 pub struct Signup<'r>{
-	user: &'r str,
-	name: &'r str,
-	phone: &'r str,
-	password: &'r str,
+	pub user: &'r str,
+	pub name: &'r str,
+	pub phone: &'r str,
+	pub password: &'r str,
 }
 // different from authonly as this is a password, not an auth token 
 #[derive(Deserialize)]
 pub struct Signin<'r>{
-	user: &'r str,
-	password: &'r str,
+	pub user: &'r str,
+	pub password: &'r str,
 }
 
 
@@ -120,7 +121,7 @@ pub struct Signin<'r>{
 fn none() -> &'static str {
 	"none"
 }
-pub fn defaultint() -> u16 {
+pub fn defaultint() -> i16 {
 	65535
 }
 

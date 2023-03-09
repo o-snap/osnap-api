@@ -29,46 +29,61 @@ struct Persist {
     thrdhndl: thread::JoinHandle<()>,
 }
 
+struct Unauth(status::Unauthorized<String>);
+
+impl From<rocket_db_pools::sqlx::Error> for Unauth {
+	fn from(inval: rocket_db_pools::sqlx::Error) -> Self{
+	Unauth(status::Unauthorized(Some(inval.to_string())))	
+	}
+}
+
+impl From<&str> for Unauth {
+	fn from(inval: &str) -> Self{
+		Unauth(status::Unauthorized(Some(inval.to_string())))
+	}
+}
 
 // for now this just serves a version string, will become landing page once webservice is moved internally.
 #[get("/")]
 fn index() -> &'static str {
-    "oSNAP API server v0.1.1"
+    "oSNAP API server v0.1.2"
 }
 
 // Profile request mechanism
 #[post("/api/profile/<user>")]
-async fn profile(mut db: Connection<postgres>, user: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<Json<Profile>>, status::Unauthorized<String>>{
+async fn profile(mut db: Connection<Postgres>, user: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<Json<Profile>>, Unauth>{
 	// Check Client Authorization
 	// Get auth token cookie
-	let mut auth: &str;
+	let auth: String;
 	match cookies.get_private("osnap-authtoken") {
-		Some(c) => auth = c.value(),
-		None => return Err("Client did not send authtoken cookie!"),
+		Some(tkn) => auth = tkn.value().to_string(),
+		None => return Err(Unauth::from("Client did not send authtoken cookie!")),
 	}
 	// verify auth token cookie
 	let record = sqlx::query("SELECT * FROM Users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
-	if record.try_get("auth")? != auth {
-		return Err("Auth token does not match! Try logging back in.");
+	let dbauth: &str = record.try_get("auth")?;
+	if dbauth != auth {
+		return Err(Unauth::from("Auth token does not match! Try logging back in."));
 	}
-	return Ok(Profile{user: user, name: &record.try_get("name")?, name: &record.try_get("age")?, gender: &record.try_get("gender")?, phone: &record.try_get("phone")?, contacts: &record.try_get("contacts")?});
+	return Ok(status::Accepted(Some(Json::from(Profile{user: user.to_string(), name: record.try_get("name")?, age: record.try_get("age")?, gender: record.try_get("gender")?, phone: record.try_get("phone")?, contacts_names: record.try_get("contacts_names")?, contacts_phones: record.try_get("contacts_phones")?, ratings: record.try_get("ratings")?}))));
 	
 }
 
 // profile data update mechanism.
 #[post("/api/profile/<user>", format="json", data = "<request>")]
-async fn profileup(mut db: Connection<postgres>, request: Json<ProfileUpdate<'_>>, user: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<String>, status::Unauthorized<String>>{
+async fn profileup(mut db: Connection<Postgres>, request: Json<ProfileUpdate<'_>>, user: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<String>, Unauth>{
 	// Check Client Authorization
 	// Get auth token cookie
-	let mut auth: &str;
+	let auth: String;
 	match cookies.get_private("osnap-authtoken") {
-		Some(c) => auth = c.value(),
-		None => return Err("Client did not send authtoken cookie!"),
+		Some(c) => auth = c.value().to_string(),
+		None => return Err(Unauth::from("Client did not send authtoken cookie!")),
 	}
 	// verify auth token cookie
 	let expected = sqlx::query("SELECT auth FROM Users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
-	if expected.try_get("auth")? != auth {
-		return Err("Auth token does not match! Try logging back in.");
+	let dbauth: &str = expected.try_get("auth")?;
+	if dbauth != auth {
+		return Err(Unauth::from("Auth token does not match! Try logging back in."));
 	}
 	// if we get here, auth is good
 	if request.name != "none"{
@@ -87,12 +102,12 @@ async fn profileup(mut db: Connection<postgres>, request: Json<ProfileUpdate<'_>
 		sqlx::query("UPDATE Users SET age = ? WHERE usern = ?").bind(request.age).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
 	}
 
-Ok("Updated successfully.")
+Ok(status::Accepted(Some("Updated successfully.".to_string())))
 }
 
 // profile sign up handler
 #[post("/api/signup", format="json", data = "<request>")]
-async fn signup_handler(mut db: Connection<postgres>, request: Json<Signup<'_>>, addr: IpAddr) -> Value{
+async fn signup_handler(mut db: Connection<Postgres>, request: Json<Signup<'_>>, addr: IpAddr) -> Value{
 	// add user to database
 	// TODO: move password hashing to API side of things
 	sqlx::query("INSERT INTO Users (user,name,phone,password) VALUES(?, ?, ?, ?)")
@@ -106,7 +121,7 @@ async fn signup_handler(mut db: Connection<postgres>, request: Json<Signup<'_>>,
 }
 // sign in request
 #[post("/api/signin", format="json", data = "<request>")]
-async fn signin_handler(mut db: Connection<postgres>, request: Json<Signin<'_>>) -> Value{
+async fn signin_handler(mut db: Connection<Postgres>, request: Json<Signin<'_>>) -> Value{
 	// generate a random authentication token
 	// TODO: only generate auth token on successful login
 	// its an unnecessary waste of time and server resources
@@ -129,7 +144,7 @@ async fn signin_handler(mut db: Connection<postgres>, request: Json<Signin<'_>>)
 
 // function for backend walk request handling
 #[post("/api/request", format="json", data = "<request>")]
-async fn walk_request_handler(mut db: Connection<postgres>, request: Json<WalkRequest>) -> Value{
+async fn walk_request_handler(mut db: Connection<Postgres>, request: Json<WalkRequest>) -> Value{
 	// make sure client is authorized
 	// TODO: Update request authentication to match new API spec
 	// the API no longer requires the userame to be sent at all and the auth token was moved to a cookie from JSON body.
@@ -154,13 +169,13 @@ async fn walk_request_handler(mut db: Connection<postgres>, request: Json<WalkRe
 // TODO: refactor all functions to return JSON not strings
 // even though this endpoint should only return a single word, it's best to keep things consistant.
 #[get("/api/trip/<id>")]
-async fn walk_wizard(mut db: Connection<postgres>, id: &str) -> String{
+async fn walk_wizard(mut db: Connection<Postgres>, id: &str) -> String{
 "Not implimented".to_string()
 }
 
 // Manage the walk confirmation stage. Both users must accept the walk to continue
 #[post("/api/trip/<id>", format="json", data = "<request>")]
-async fn walkman(mut db: Connection<postgres>, request: Json<WalkResponce<'_>>, id: &str) -> Value{
+async fn walkman(mut db: Connection<Postgres>, request: Json<WalkResponce<'_>>, id: &str) -> Value{
 	// make sure client is authorized
 	if sqlx::query("SELECT auth from Users WHERE usern = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
 		return json!({"request":"error: unauthorized"});
@@ -200,15 +215,15 @@ async fn walkman(mut db: Connection<postgres>, request: Json<WalkResponce<'_>>, 
 // TODO: Migrate from sqlite to postresql
 // sqlite driver is written in C making it unsafe
 #[derive(Database)]
-#[database("postgres")]
-struct postgres(sqlx::PgPool);
+#[database("Postgres")]
+struct Postgres(sqlx::PgPool);
 
 #[launch]
 fn rocket() -> _ {
 	let (mut asend, arecv) = unbounded();
 	let mut hndl = launch_alert_thread(arecv);
     rocket::build().mount("/", routes![index, profile, profileup, signup_handler, signin_handler, walk_request_handler, walk_wizard, walkman])
-	.attach(postgres::init()).manage(Persist{alertsnd: asend, thrdhndl: hndl})
+	.attach(Postgres::init()).manage(Persist{alertsnd: asend, thrdhndl: hndl})
 }
 /* Launches a dedicated thread to manage the failsafe system. Communication with this thread is done via the AlertComm struct and is 1-way.
 * launch function returns a join handle which can be periodically checked to make sure it's still alive and respawn if necessary. 
