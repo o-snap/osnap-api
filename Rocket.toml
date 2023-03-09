@@ -8,14 +8,14 @@ ident = "o-snap"
 log_level = "normal"
 temp_dir = "/tmp"
 cli_colors = true
-secret_key = "2bChvsu8Ko4rk1jYV5xijcAN5IQVdI+wBdz9lEJRUdY="
+secret_key = "2bChvsu8Ko4rk1jYV5xijcAN5IQVdI+wBdz9lEJRUdY=" # replaceme
 
 [release.tls]
 certs = "/srv/osnap/ca-cert.pem"
 key = "/srv/osnap/ca-key.pem"
 
-[default.databases.Users]
-url = "/srv/osnap/users.db"
+[default.databases.postgres]
+url = "postgres://postgres@localhost/osnap"
 
 min_connections = 64
 max_connections = 1024

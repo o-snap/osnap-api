@@ -1,0 +1,24 @@
+# Commands to setup basic database schema
+
+CREATE TABLE Users (
+	usern text PRIMARY KEY,
+	name text NOT NULL,
+	age integer,
+	gender text,
+	picture text,
+	phone text,
+	contacts_names text,
+	contacts_phones text,
+	ratings text,
+	auth text
+);
+
+CREATE TABLE Trips (
+	id text PRIMARY KEY,
+	users text NOT NULL,
+	failsafe integer,
+	origin text,
+	destination text,
+	status integer,
+	time integer
+);
