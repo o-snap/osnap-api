@@ -10,10 +10,6 @@ There's no reason to use something as cumbersome as a relational database to sto
 
 It's a good idea to have both an SQL-database component for the trip and a in-memory object for the trip. This in-memory object could more easily keep track of current locations and so on whereas the postgres component will be for logging purposes
 
-## Migrate database system from SQLite to postgres
-
-In progress - uses the same database driver and langueage so should be trivial
-
 ## Write test cases
 
 Self explanatory - we currently have 0% test coverage

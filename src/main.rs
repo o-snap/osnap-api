@@ -1,11 +1,12 @@
 #[macro_use] extern crate rocket;
 #[cfg(test)] mod tests;
-use rocket::http::{Cookie, CookieJar};
+use rocket::http::{Cookie, CookieJar, Status};
 use std::net::IpAddr;
 use rocket_db_pools::{sqlx::{self,Row}, Database, Connection};
 use serde::{Deserialize, Serialize};
 use rocket::serde::json::{Json, Value, json};
-use rocket::response::status;
+use rocket::response::{self, status, Responder, Response};
+use rocket::request::Request;
 use rand_core::{RngCore, OsRng};
 use std::{thread, time, time::Duration};
 use crossbeam::channel::{self, unbounded, Receiver};
@@ -28,7 +29,7 @@ struct Persist {
     alertsnd: channel::Sender<AlertComm>,
     thrdhndl: thread::JoinHandle<()>,
 }
-
+#[derive(Responder)]
 struct Unauth(status::Unauthorized<String>);
 
 impl From<rocket_db_pools::sqlx::Error> for Unauth {
@@ -50,7 +51,7 @@ fn index() -> &'static str {
 }
 
 // Profile request mechanism
-#[post("/api/profile/<user>")]
+#[get("/api/profile/<user>")]
 async fn profile(mut db: Connection<Postgres>, user: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<Json<Profile>>, Unauth>{
 	// Check Client Authorization
 	// Get auth token cookie
@@ -60,12 +61,12 @@ async fn profile(mut db: Connection<Postgres>, user: &str, cookies: &CookieJar<'
 		None => return Err(Unauth::from("Client did not send authtoken cookie!")),
 	}
 	// verify auth token cookie
-	let record = sqlx::query("SELECT * FROM Users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
+	let record = sqlx::query("SELECT * FROM users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
 	let dbauth: &str = record.try_get("auth")?;
 	if dbauth != auth {
 		return Err(Unauth::from("Auth token does not match! Try logging back in."));
 	}
-	return Ok(status::Accepted(Some(Json::from(Profile{user: user.to_string(), name: record.try_get("name")?, age: record.try_get("age")?, gender: record.try_get("gender")?, phone: record.try_get("phone")?, contacts_names: record.try_get("contacts_names")?, contacts_phones: record.try_get("contacts_phones")?, ratings: record.try_get("ratings")?}))));
+	Ok(status::Accepted(Some(Json::from(Profile{user: user.to_string(), name: record.try_get("name")?, age: record.try_get("age")?, gender: record.try_get("gender")?, phone: record.try_get("phone")?, contacts_names: record.try_get("contacts_names")?, contacts_phones: record.try_get("contacts_phones")?, ratings: record.try_get("ratings")?}))))
 	
 }
 
@@ -80,76 +81,52 @@ async fn profileup(mut db: Connection<Postgres>, request: Json<ProfileUpdate<'_>
 		None => return Err(Unauth::from("Client did not send authtoken cookie!")),
 	}
 	// verify auth token cookie
-	let expected = sqlx::query("SELECT auth FROM Users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
+	let expected = sqlx::query("SELECT auth FROM users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
 	let dbauth: &str = expected.try_get("auth")?;
 	if dbauth != auth {
 		return Err(Unauth::from("Auth token does not match! Try logging back in."));
 	}
 	// if we get here, auth is good
 	if request.name != "none"{
-		sqlx::query("UPDATE Users SET name = ? WHERE usern = ?").bind(sanitizer(request.name, FieldType::AlphaNum)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+		sqlx::query("UPDATE users SET name = ? WHERE usern = ?").bind(sanitizer(request.name, FieldType::AlphaNum)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
 	}
 	if request.gender != "none"{
-		sqlx::query("UPDATE Users SET gender = ? WHERE usern = ?").bind(sanitizer(request.gender, FieldType::AlphaNum)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+		sqlx::query("UPDATE users SET gender = ? WHERE usern = ?").bind(sanitizer(request.gender, FieldType::AlphaNum)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
 	}
 	if request.phone != "none"{
-		sqlx::query("UPDATE Users SET phone = ? WHERE usern = ?").bind(sanitizer(request.phone, FieldType::Phone)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+		sqlx::query("UPDATE users SET phone = ? WHERE usern = ?").bind(sanitizer(request.phone, FieldType::Phone)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
 	}
-	if request.contacts != "none"{
-		sqlx::query("UPDATE Users SET contacts = ? WHERE usern = ?").bind(sanitizer(request.contacts, FieldType::Phone)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+	if request.contacts_names != "none"{
+		sqlx::query("UPDATE users SET contacts_names = ? WHERE usern = ?").bind(sanitizer(request.contacts_names, FieldType::Alpha)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+	}
+	if request.contacts_phones != "none"{
+		sqlx::query("UPDATE users SET contacts_phones = ? WHERE usern = ?").bind(sanitizer(request.contacts_phones, FieldType::Phone)).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
 	}
 	if request.age != defaultint() {
-		sqlx::query("UPDATE Users SET age = ? WHERE usern = ?").bind(request.age).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
+		sqlx::query("UPDATE users SET age = ? WHERE usern = ?").bind(request.age).bind(sanitizer(user, FieldType::Alpha)).execute(&mut *db).await?;
 	}
 
 Ok(status::Accepted(Some("Updated successfully.".to_string())))
 }
 
-// profile sign up handler
-#[post("/api/signup", format="json", data = "<request>")]
-async fn signup_handler(mut db: Connection<Postgres>, request: Json<Signup<'_>>, addr: IpAddr) -> Value{
-	// add user to database
-	// TODO: move password hashing to API side of things
-	sqlx::query("INSERT INTO Users (user,name,phone,password) VALUES(?, ?, ?, ?)")
-	.bind(request.user)
-	.bind(request.name)
-	.bind(request.phone)
-	.bind(request.password)
-	.execute(&mut *db).await.unwrap();
-	json!({"status": "ok"})
-
-}
-// sign in request
-#[post("/api/signin", format="json", data = "<request>")]
-async fn signin_handler(mut db: Connection<Postgres>, request: Json<Signin<'_>>) -> Value{
-	// generate a random authentication token
-	// TODO: only generate auth token on successful login
-	// its an unnecessary waste of time and server resources
-	// TODO: I don't think OsRNng is considered secure. Better RNG? Change to u64?
-	// since this token will be served in a Rocket encrypted cookie, I don't think it should be too bad to just use u64
-	let auth = OsRng.next_u32().to_string();
-	// grab user data from SQL db
-	match sqlx::query("SELECT password from Users WHERE usern = ?").bind(request.user).fetch_one(&mut *db).await {
-		//TODO: add password hash check with argon2
-		Ok(row) => {if row.get::<&str, &str>("password") == request.password {
-			// if password matches, issue token. 
-			// TODO: add auth token expiration
-			sqlx::query("UPDATE Users SET auth = ? WHERE usern = ?").bind(&auth).bind(request.user).execute(&mut *db).await.unwrap();
-			return json!({"login": auth})
-		}}
-		Err(_) => return json!({"login": "noaccount"})
-	}
-	json!({"login": "bad"})
-}
+//TODO: re-add signing functions with oAuth support
 
 // function for backend walk request handling
+
+// TODO: switch to in-memory data structure
 #[post("/api/request", format="json", data = "<request>")]
-async fn walk_request_handler(mut db: Connection<Postgres>, request: Json<WalkRequest>) -> Value{
+async fn walk_request_handler(mut db: Connection<Postgres>, request: Json<WalkRequest>) -> Result<status::Created<String>, Unauth>{
 	// make sure client is authorized
-	// TODO: Update request authentication to match new API spec
-	// the API no longer requires the userame to be sent at all and the auth token was moved to a cookie from JSON body.
-	if sqlx::query("SELECT auth from Users WHERE usern = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
-		return json!({"request":"failed"});
+	let auth: String;
+	match cookies.get_private("osnap-authtoken") {
+		Some(c) => auth = c.value().to_string(),
+		None => return Err(Unauth::from("Client did not send authtoken cookie!")),
+	}
+	// verify auth token 
+	let expected = sqlx::query("SELECT usern FROM users WHERE auth = ?").bind(auth)).fetch_one(&mut *db).await?;
+	let user: &str = expected.try_get("usern")?; // we should auto-return unauth if the credential doesn't exist
+	if !user.len() {
+		return Err(Unauth::from("Auth token does not match! Try logging back in."));
 	}
 	// generate a random request id 
 	// TODO: (maybe) use UUid crate for request IDs
@@ -157,7 +134,7 @@ async fn walk_request_handler(mut db: Connection<Postgres>, request: Json<WalkRe
 	// create an entry in the database's Requests table for the backend to match requests
 	sqlx::query("INSERT INTO Requests (id,User,Dest,Lat,Long) VALUES(?, ?, ?, ?, ?)")
 	.bind(&request_id)
-	.bind(request.user)
+	.bind(user)
 	.bind(request.dest)
 	.bind(request.loc.latitude)
 	.bind(request.loc.longitude)

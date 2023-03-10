@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use chrono::{Utc, DateTime};
+use std::string::String;
 // Define structs for automatic JSON Parsing 
-// TODO: Impliment request guards for data integrity & security
 
 // struct used to serve user data in JSON
 #[derive(Serialize, Deserialize, Clone)]
@@ -27,25 +27,37 @@ pub struct ProfileUpdate<'r> {
 	#[serde(default = "none")]
 	pub phone: &'r str,
 	#[serde(default = "none")]
-	pub contacts: &'r str
+	pub contacts_names: &'r str,
+	#[serde(default = "none")]
+	pub contacts_phones: &'r str
 }
 
 // request submitted by user to find walking buddy
-// TODO: add desired time of departure
 #[derive(Serialize, Deserialize)]
-pub struct WalkRequest<> {
-	pub dest: Location,
-	pub loc: Location,
+pub struct WalkRequest {
+	pub dest: String, // comma-separated coordinates
+	pub loc: String,
 	pub minbuddies: i8,
 	pub maxbuddies: i8,
-	pub time: DateTime<Utc>
+	pub time: DateTime<Utc> //parses as RFC 3339
 }
-// Location struct
-#[derive(Serialize, Deserialize)]
+
 pub struct Location {
-	pub latitude: String,
-	pub longitude: String
+	pub raw_coords: String,
+	pub lat: String,
+	pub long: String,
+	pub street: String, //google API provided address
+	pub placeID: String
 }
+
+impl From<String> for Location{
+	fn from(inval: String) -> Self{
+		let coords = inval.split(',');
+		// TODO: add google maps API integration
+		Location{raw_coords: inval, lat: coords.next().unwrap_or("INVALID").to_string(), long: coords.next().unwrap_or("INVALID").to_string(), street: "Not Implimented".to_string(), placeID: "Not Implimented".to_string()}
+	}
+}
+
 // struct to serve profile data of other users, does not include sensitive info
 #[derive(Serialize, Deserialize)]
 pub struct PubProfile {
@@ -73,7 +85,7 @@ pub struct WalkResponce<'r>{
 // communications from client while walk in in progress
 #[derive(Serialize, Deserialize)]
 pub struct InFlightSet<> {
-	pub curlocation: Location,
+	pub curlocation: String,
 	#[serde(default = "falsebool")]
 	pub distress: bool
 }
@@ -82,7 +94,7 @@ pub struct InFlightSet<> {
 #[derive(Serialize, Deserialize)]
 struct BuddyLoc {
 	name: String,
-	curlocation: Location
+	curlocation: String
 }
 
 //data to send to client about walk and buddy locations
@@ -95,7 +107,7 @@ pub struct InFlightGet {
 // data from client when trip is over
 #[derive(Serialize, Deserialize)]
 pub struct TripEnd {
-	curlocation: Location,
+	curlocation: String,
 	rating: i16
 }
 
@@ -114,10 +126,6 @@ pub struct Signin<'r>{
 }
 
 
-
-//goofy ahh functions due to serde quirk 
-//TODO: Reassess serde default value functions
-// they may not be needed after the user request refactor
 fn none() -> &'static str {
 	"none"
 }
@@ -138,7 +146,7 @@ pub enum FieldType {
 }
 // Santiizes data to be sent to SQL database. Does not return errors because this should be last line of defence. It's the frontend's job to give the user nice errors about their input, it's this functions job to prevent injection.
 pub fn sanitizer<'r>(inval: &'r str, kind: FieldType) -> String {
-	let mut outval = String::New();
+	let mut outval = String::new();
 	let mut matchrange = true;
 	let mut bounds: [u32; 2] = [0, 0];
 	for ch in inval.chars(){
@@ -147,13 +155,13 @@ pub fn sanitizer<'r>(inval: &'r str, kind: FieldType) -> String {
 			if ch.is_alphabetic() {outval.push(ch)}	
 			}
 			FieldType::Num => {
-			if ch.is_digit() {outval.push(ch)}	
+			if ch.is_digit(0) {outval.push(ch)}	
 			}
 			FieldType::AlphaNum => {
 			if ch.is_alphanumeric() {outval.push(ch)}	
 			}
 			FieldType::Phone => {
-			if ch.is_digit() || ch == '-' || ch ==',' {outval.push(ch)}
+			if ch.is_digit(0) || ch == '-' || ch ==',' {outval.push(ch)}
 			if outval.len() > 12 {outval.clear()}
 			}
 		}
