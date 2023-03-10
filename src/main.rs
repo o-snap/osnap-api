@@ -10,6 +10,7 @@ use rocket::request::Request;
 use rand_core::{RngCore, OsRng};
 use std::{thread, time, time::Duration};
 use crossbeam::channel::{self, unbounded, Receiver};
+use std::sync::{Arc, Mutex};
 mod parsers;
 pub use crate::parsers::*;
 use chrono::{Utc, DateTime};
@@ -29,6 +30,20 @@ struct Persist {
     alertsnd: channel::Sender<AlertComm>,
     thrdhndl: thread::JoinHandle<()>,
 }
+
+struct WalkRequest {
+	dest: String, // comma-separated coordinates
+	loc: String,
+	minbuddies: i8,
+	maxbuddies: i8,
+	time: DateTime<Utc> //parses as RFC 3339
+}
+
+struct WalkState {
+	active: Arc<Mutex<Vec<WalkRequest>>>
+}
+
+// Wrapper for Unauthorized responce that impliments SQLX error conversion
 #[derive(Responder)]
 struct Unauth(status::Unauthorized<String>);
 
@@ -111,86 +126,10 @@ Ok(status::Accepted(Some("Updated successfully.".to_string())))
 
 //TODO: re-add signing functions with oAuth support
 
-// function for backend walk request handling
+// TODO: re-add walk_request, walkman, walk_wizard
 
-// TODO: switch to in-memory data structure
-#[post("/api/request", format="json", data = "<request>")]
-async fn walk_request_handler(mut db: Connection<Postgres>, request: Json<WalkRequest>) -> Result<status::Created<String>, Unauth>{
-	// make sure client is authorized
-	let auth: String;
-	match cookies.get_private("osnap-authtoken") {
-		Some(c) => auth = c.value().to_string(),
-		None => return Err(Unauth::from("Client did not send authtoken cookie!")),
-	}
-	// verify auth token 
-	let expected = sqlx::query("SELECT usern FROM users WHERE auth = ?").bind(auth)).fetch_one(&mut *db).await?;
-	let user: &str = expected.try_get("usern")?; // we should auto-return unauth if the credential doesn't exist
-	if !user.len() {
-		return Err(Unauth::from("Auth token does not match! Try logging back in."));
-	}
-	// generate a random request id 
-	// TODO: (maybe) use UUid crate for request IDs
-	let request_id = OsRng.next_u32().to_string();
-	// create an entry in the database's Requests table for the backend to match requests
-	sqlx::query("INSERT INTO Requests (id,User,Dest,Lat,Long) VALUES(?, ?, ?, ?, ?)")
-	.bind(&request_id)
-	.bind(user)
-	.bind(request.dest)
-	.bind(request.loc.latitude)
-	.bind(request.loc.longitude)
-	.execute(&mut *db).await.unwrap();
-	json!({"request":request_id})
-}
 
-// tries to find a walking buddy for a user and returns a status code
-// TODO: refactor all functions to return JSON not strings
-// even though this endpoint should only return a single word, it's best to keep things consistant.
-#[get("/api/trip/<id>")]
-async fn walk_wizard(mut db: Connection<Postgres>, id: &str) -> String{
-"Not implimented".to_string()
-}
-
-// Manage the walk confirmation stage. Both users must accept the walk to continue
-#[post("/api/trip/<id>", format="json", data = "<request>")]
-async fn walkman(mut db: Connection<Postgres>, request: Json<WalkResponce<'_>>, id: &str) -> Value{
-	// make sure client is authorized
-	if sqlx::query("SELECT auth from Users WHERE usern = ?").bind(request.user).fetch_one(&mut *db).await.unwrap().get::<&str, &str>("auth") != request.auth{
-		return json!({"request":"error: unauthorized"});
-	}
-	// make sure trip exists 
-	let trip = sqlx::query("SELECT * from Trips WHERE id = ?").bind(id).fetch_one(&mut *db).await.unwrap();
-	if trip.is_empty(){
-		return json!({"request":"nonexistant"});
-	}
-	let mut stat = trip.get::<u16, &str>("status");
-	let mut fs = 0;
-	if stat == 0{
-		return json!({"request":"cancelled by peer"});
-	}
-	match request.operation {
-		"accept" => stat += 1,
-		"decline" => stat = 0,
-		_ => return json!({"request":"invalid"})
-	}
-	if request.failsafe {
-		fs = 1;
-	}
-	let mut user = "u1fs";
-	if trip.get::<&str, &str>("user2") == request.user{
-		user = "u2fs"
-	}
-	sqlx::query("UPDATE Trips SET status = ?, ? = ? WHERE id = ?")
-	.bind(stat)
-	.bind(user)
-	.bind(fs)
-	.bind(id)
-	.execute(&mut *db).await.unwrap();
-	json!({"request":"ok"})
-}
-
-// initialize SQLite database connection defined in Rocket.toml
-// TODO: Migrate from sqlite to postresql
-// sqlite driver is written in C making it unsafe
+// initialize Postgres database connection defined in Rocket.toml
 #[derive(Database)]
 #[database("Postgres")]
 struct Postgres(sqlx::PgPool);
@@ -199,8 +138,8 @@ struct Postgres(sqlx::PgPool);
 fn rocket() -> _ {
 	let (mut asend, arecv) = unbounded();
 	let mut hndl = launch_alert_thread(arecv);
-    rocket::build().mount("/", routes![index, profile, profileup, signup_handler, signin_handler, walk_request_handler, walk_wizard, walkman])
-	.attach(Postgres::init()).manage(Persist{alertsnd: asend, thrdhndl: hndl})
+    rocket::build().mount("/", routes![index, profile, profileup])
+	.attach(Postgres::init()).manage(Persist{alertsnd: asend, thrdhndl: hndl}).manage(WalkState{active: Arc::new(Mutex::new(vec!()))})
 }
 /* Launches a dedicated thread to manage the failsafe system. Communication with this thread is done via the AlertComm struct and is 1-way.
 * launch function returns a join handle which can be periodically checked to make sure it's still alive and respawn if necessary. 

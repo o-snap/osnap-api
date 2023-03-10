@@ -32,29 +32,21 @@ pub struct ProfileUpdate<'r> {
 	pub contacts_phones: &'r str
 }
 
-// request submitted by user to find walking buddy
-#[derive(Serialize, Deserialize)]
-pub struct WalkRequest {
-	pub dest: String, // comma-separated coordinates
-	pub loc: String,
-	pub minbuddies: i8,
-	pub maxbuddies: i8,
-	pub time: DateTime<Utc> //parses as RFC 3339
-}
+
 
 pub struct Location {
 	pub raw_coords: String,
 	pub lat: String,
 	pub long: String,
 	pub street: String, //google API provided address
-	pub placeID: String
+	pub place_id: String
 }
 
 impl From<String> for Location{
 	fn from(inval: String) -> Self{
-		let coords = inval.split(',');
+		let mut coords = inval.split(',');
 		// TODO: add google maps API integration
-		Location{raw_coords: inval, lat: coords.next().unwrap_or("INVALID").to_string(), long: coords.next().unwrap_or("INVALID").to_string(), street: "Not Implimented".to_string(), placeID: "Not Implimented".to_string()}
+		Location{raw_coords: inval.clone(), lat: coords.next().unwrap_or("INVALID").to_string(), long: coords.next().unwrap_or("INVALID").to_string(), street: "Not Implimented".to_string(), place_id: "Not Implimented".to_string()}
 	}
 }
 
@@ -130,7 +122,7 @@ fn none() -> &'static str {
 	"none"
 }
 pub fn defaultint() -> i16 {
-	65535
+	32767
 }
 
 fn falsebool()->bool{
@@ -145,10 +137,8 @@ pub enum FieldType {
 	Phone
 }
 // Santiizes data to be sent to SQL database. Does not return errors because this should be last line of defence. It's the frontend's job to give the user nice errors about their input, it's this functions job to prevent injection.
-pub fn sanitizer<'r>(inval: &'r str, kind: FieldType) -> String {
+pub fn sanitizer(inval: &str, kind: FieldType) -> String {
 	let mut outval = String::new();
-	let mut matchrange = true;
-	let mut bounds: [u32; 2] = [0, 0];
 	for ch in inval.chars(){
 		match kind{
 			FieldType::Alpha => {
