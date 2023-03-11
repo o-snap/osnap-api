@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use chrono::{Utc, DateTime};
 use std::string::String;
+use rand_core::{RngCore, OsRng};
+
 // Define structs for automatic JSON Parsing 
 
 // struct used to serve user data in JSON
@@ -33,7 +35,6 @@ pub struct ProfileUpdate<'r> {
 }
 
 
-
 pub struct Location {
 	pub raw_coords: String,
 	pub lat: String,
@@ -59,6 +60,20 @@ pub struct PubProfile {
 	pub numratings: u32,
 	pub phone: String
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct WalkRequest {
+	pub dest: String, // comma-separated coordinates
+	pub loc: String,
+	pub minbuddies: i8,
+	pub maxbuddies: i8,
+	pub time: DateTime<Utc>, //parses as RFC 3339
+	// the following values should NOT be sent via JSON
+	// they are overwritten by request handler
+	#[serde(default)]
+	pub id: u32
+}
+
 
 // enum to provide walk status during trip start
 #[derive(Serialize, Deserialize)]
@@ -127,6 +142,10 @@ pub fn defaultint() -> i16 {
 
 fn falsebool()->bool{
 	false
+}
+
+pub fn idGen() -> u32{
+	OsRng.next_u32()
 }
 
 // rule sets for input sanitization

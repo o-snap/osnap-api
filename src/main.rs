@@ -1,13 +1,12 @@
 #[macro_use] extern crate rocket;
 #[cfg(test)] mod tests;
 use rocket::http::{Cookie, CookieJar, Status};
-use std::net::IpAddr;
+use rocket::State;
 use rocket_db_pools::{sqlx::{self,Row}, Database, Connection};
 use serde::{Deserialize, Serialize};
 use rocket::serde::json::{Json, Value, json};
 use rocket::response::{self, status, Responder, Response};
 use rocket::request::Request;
-use rand_core::{RngCore, OsRng};
 use std::{thread, time, time::Duration};
 use crossbeam::channel::{self, unbounded, Receiver};
 use std::sync::{Arc, Mutex};
@@ -31,33 +30,26 @@ struct Persist {
     thrdhndl: thread::JoinHandle<()>,
 }
 
-struct WalkRequest {
-	dest: String, // comma-separated coordinates
-	loc: String,
-	minbuddies: i8,
-	maxbuddies: i8,
-	time: DateTime<Utc> //parses as RFC 3339
-}
-
 struct WalkState {
 	active: Arc<Mutex<Vec<WalkRequest>>>
 }
 
 // Wrapper for Unauthorized responce that impliments SQLX error conversion
 #[derive(Responder)]
-struct Unauth(status::Unauthorized<String>);
+struct Unauth(status::Custom<String>);
 
 impl From<rocket_db_pools::sqlx::Error> for Unauth {
 	fn from(inval: rocket_db_pools::sqlx::Error) -> Self{
-	Unauth(status::Unauthorized(Some(inval.to_string())))	
+	Unauth(status::Custom(Status::Unauthorized, inval.to_string()))
 	}
 }
 
 impl From<&str> for Unauth {
 	fn from(inval: &str) -> Self{
-		Unauth(status::Unauthorized(Some(inval.to_string())))
+		Unauth(status::Custom(Status::Unauthorized, inval.to_string()))
 	}
 }
+
 
 // for now this just serves a version string, will become landing page once webservice is moved internally.
 #[get("/")]
@@ -69,13 +61,7 @@ fn index() -> &'static str {
 #[get("/api/profile/<user>")]
 async fn profile(mut db: Connection<Postgres>, user: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<Json<Profile>>, Unauth>{
 	// Check Client Authorization
-	// Get auth token cookie
-	let auth: String;
-	match cookies.get_private("osnap-authtoken") {
-		Some(tkn) => auth = tkn.value().to_string(),
-		None => return Err(Unauth::from("Client did not send authtoken cookie!")),
-	}
-	// verify auth token cookie
+	let auth = cookies.get_private("osnap-authtoken").ok_or("No auth token was provided!")?.value().to_string();
 	let record = sqlx::query("SELECT * FROM users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
 	let dbauth: &str = record.try_get("auth")?;
 	if dbauth != auth {
@@ -89,15 +75,9 @@ async fn profile(mut db: Connection<Postgres>, user: &str, cookies: &CookieJar<'
 #[post("/api/profile/<user>", format="json", data = "<request>")]
 async fn profileup(mut db: Connection<Postgres>, request: Json<ProfileUpdate<'_>>, user: &str, cookies: &CookieJar<'_>) -> Result<status::Accepted<String>, Unauth>{
 	// Check Client Authorization
-	// Get auth token cookie
-	let auth: String;
-	match cookies.get_private("osnap-authtoken") {
-		Some(c) => auth = c.value().to_string(),
-		None => return Err(Unauth::from("Client did not send authtoken cookie!")),
-	}
-	// verify auth token cookie
-	let expected = sqlx::query("SELECT auth FROM users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
-	let dbauth: &str = expected.try_get("auth")?;
+	let auth = cookies.get_private("osnap-authtoken").ok_or("No auth token was provided!")?.value().to_string();
+	let record = sqlx::query("SELECT auth FROM users WHERE usern = ?").bind(sanitizer(user, FieldType::Alpha)).fetch_one(&mut *db).await?;
+	let dbauth: &str = record.try_get("auth")?;
 	if dbauth != auth {
 		return Err(Unauth::from("Auth token does not match! Try logging back in."));
 	}
@@ -126,7 +106,39 @@ Ok(status::Accepted(Some("Updated successfully.".to_string())))
 
 //TODO: re-add signing functions with oAuth support
 
-// TODO: re-add walk_request, walkman, walk_wizard
+//This function recieves walk requests, validates them, and stores them.
+#[post("/api/request", format="json", data = "<indata>")]
+async fn walk_request_handler(mut db: Connection<Postgres>, mut indata: Json<WalkRequest>, requests: &State<WalkState>,  cookies: &CookieJar<'_>) -> Result<status::Created<String>, Unauth>{
+	let auth = cookies.get_private("osnap-authtoken").ok_or("No auth token was provided!")?.value().to_string();
+	let record = sqlx::query("SELECT usern FROM users WHERE auth = ?").bind(auth).fetch_one(&mut *db).await?;
+	record.try_get("usern")?; // we should auto-return unauth if the credential doesn't exist
+	// verify incoming request
+	// TODO: add geofence verification when google maps API is implimented
+	if indata.minbuddies > indata.maxbuddies || indata.minbuddies < 0 {
+		return Err(Unauth(status::Custom(Status::BadRequest, "Invalid Buddy range supplied".to_string())));
+	}
+	let loc: Vec<&str> = indata.loc.split(',').collect();
+	let dest: Vec<&str> = indata.dest.split(',').collect();
+	if loc.len() != 2 || dest.len() != 2 {
+		return Err(Unauth(status::Custom(Status::BadRequest, "Invalid Location Format supplied!".to_string())));
+	}
+	
+	for vect in [loc, dest]{
+		for i in vect{
+			match i.parse::<f32>() {
+				Ok(_) => continue,
+				Err(_) => return Err(Unauth(status::Custom(Status::BadRequest, "Invalid Location data supplied!".to_string()))),
+			}
+		}
+	}
+	
+	let newID = idGen();
+	indata.id = newID;
+	//let mut requests_store: Vec<WalkRequest> = *requests.active.lock().unwrap();
+	requests.active.lock().unwrap().push(indata.into_inner());
+
+	Ok(status::Created::new(newID.to_string()))
+}
 
 
 // initialize Postgres database connection defined in Rocket.toml
@@ -138,7 +150,7 @@ struct Postgres(sqlx::PgPool);
 fn rocket() -> _ {
 	let (mut asend, arecv) = unbounded();
 	let mut hndl = launch_alert_thread(arecv);
-    rocket::build().mount("/", routes![index, profile, profileup])
+    rocket::build().mount("/", routes![index, profile, profileup, walk_request_handler])
 	.attach(Postgres::init()).manage(Persist{alertsnd: asend, thrdhndl: hndl}).manage(WalkState{active: Arc::new(Mutex::new(vec!()))})
 }
 /* Launches a dedicated thread to manage the failsafe system. Communication with this thread is done via the AlertComm struct and is 1-way.

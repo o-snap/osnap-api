@@ -20,7 +20,8 @@ If the authentication token matches the username of the request, the API server 
 	"gender": "female",
 	"picture": "/pictures/eca7fd8979e2408d",
 	"phone": "123-456-7890",
-	"Contacts": "XXX-XXX-XXXX,YYY-YYY-YYYY,ZZZ-ZZZ-ZZZZ",
+	"contacts-names": "John Boynton, Ichabod Washburn, Laurie Leshin"
+	"contacts-phones": "XXX-XXX-XXXX,YYY-YYY-YYYY,ZZZ-ZZZ-ZZZZ",
 	"ratings": "5,4,5,2,5,4,3,5"
 
 }
@@ -48,18 +49,11 @@ As this process does not require any data in responce, this is one of the few en
 The user can request a partner by POSTING to `/api/request` in the following format
 ```JSON
 {
-	"destination": 	{
-		"latitude": "0.000000",
-		"longitude": "0.000000",
-	},
-	"curlocation":
-	{
-		"latitude": "0.000000",
-		"longitude": "0.000000",
-	},
+	"destination": "0.0000000,0.0000000",
+	"curlocation": "0.0000000,0.0000000",
 	"minbuddies": 1,
 	"maxbuddies": 2,
-	"time": 1681978800
+	"time": "2023-10-12T07:20:50.52Z" # RFC 3339 format
 }
 ```
 
@@ -125,21 +119,13 @@ During the trip, the user may keep the UI open (using built-in google maps integ
 
 ```JSON
 {
-	"curlocation":
-	{
-		"latitude": "0.000000",
-		"longitude": "0.000000",
-	}
+	"curlocation": "0.0000000,0.0000000"
 }
 ```
 or
 ```JSON
 {
-	"curlocation":
-	{
-		"latitude": "0.000000",
-		"longitude": "0.000000",
-	},
+	"curlocation": "0.0000000,0.0000000",
 	"distress": true
 }
 ```
@@ -152,19 +138,11 @@ When a valid client performs a GET request against the `inflight` endpoint, the 
 	"buddy": [
 			{
 			"name": "Johnny Appleseed",
-			"curlocation":
-				{
-					"latitude": "0.000000",
-					"longitude": "0.000000",
-				}
+			"curlocation": "0.0000000,0.0000000"
 			},
 			{
 			"name": "Jimmy McGill",
-			"curlocation":
-				{
-					"latitude": "0.000000",
-					"longitude": "0.000000",
-				}
+			"curlocation": "0.0000000,0.0000000"
 			}
 		]
 }
@@ -177,11 +155,7 @@ In this context, curlocation is the *buddy's* current location and `status` is t
 When the user terminates their trip, the API server *must* be notified. The frontend should send the user's location at the time of walk termination for use in the failsafe system and the rating of the buddy. The client will POST to `/api/trip/{tripID}/end` the following:
 ```JSON
 {
-	"curlocation":
-		{
-			"latitude": "0.000000",
-			"longitude": "0.000000",
-		},
+	"curlocation": "0.0000000,0.0000000",
 	"rating": [4]
 }
 ```
